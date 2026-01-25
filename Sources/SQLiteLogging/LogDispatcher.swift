@@ -16,6 +16,7 @@ actor LogDispatcher {
     private var lastDropReport: ContinuousClock.Instant?
     private var droppedCounts: [Logger.Level: Int] = [:]
     private var isShutdown = false
+    private var streamContinuations: [UUID: AsyncStream<SQLiteLogRecord>.Continuation] = [:]
 
     init(store: SQLiteLogStore, queueDepth: Int, dropPolicy: DropPolicy?, appName: String) {
         self.store = store
@@ -49,6 +50,7 @@ actor LogDispatcher {
     func shutdown() async {
         isShutdown = true
         await flush()
+        finishStreams()
         resolveShutdownWaiters()
     }
 
@@ -77,7 +79,21 @@ actor LogDispatcher {
 
     private func send(_ event: LogEvent) async {
         let entry = SQLiteLogEntry(event)
-        await store.append(entry)
+        if let record = await store.append(entry) {
+            broadcast(record)
+        }
+    }
+
+    func stream() -> AsyncStream<SQLiteLogRecord> {
+        AsyncStream { continuation in
+            let id = UUID()
+            streamContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task {
+                    await self?.removeStream(id: id)
+                }
+            }
+        }
     }
 
     private var bufferIsEmpty: Bool {
@@ -163,6 +179,22 @@ actor LogDispatcher {
         )
         buffer.append(event)
         startProcessingIfNeeded()
+    }
+
+    private func broadcast(_ record: SQLiteLogRecord) {
+        for continuation in streamContinuations.values {
+            continuation.yield(record)
+        }
+    }
+
+    private func finishStreams() {
+        let continuations = streamContinuations.values
+        streamContinuations.removeAll()
+        continuations.forEach { $0.finish() }
+    }
+
+    private func removeStream(id: UUID) {
+        streamContinuations[id] = nil
     }
 
     private func resolveFlushWaitersIfNeeded() {

@@ -3,13 +3,19 @@ import GRDB
 
 package enum SQLiteLogSQL {
     package static func buildQuery(
-        _ query: SQLiteLogQuery
+        _ query: SQLiteLogQuery,
+        ids: [Int64]? = nil
     ) -> (String, StatementArguments) {
         var sql = "SELECT * FROM logs"
         var conditions: [String] = []
         var arguments = StatementArguments()
         let formatter = makeFormatter()
 
+        if let ids, !ids.isEmpty {
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ", ")
+            conditions.append("id IN (\(placeholders))")
+            _ = arguments.append(contentsOf: StatementArguments(ids))
+        }
         if let from = query.from {
             conditions.append("timestamp >= ?")
             _ = arguments.append(contentsOf: StatementArguments([formatter.string(from: from)]))
@@ -24,7 +30,7 @@ package enum SQLiteLogSQL {
             _ = arguments.append(contentsOf: StatementArguments(levels))
         }
         if let label = query.label {
-            conditions.append("label = ?")
+            conditions.append("label = ? COLLATE NOCASE")
             _ = arguments.append(contentsOf: StatementArguments([label]))
         }
         if let tag = query.tag {
@@ -36,14 +42,14 @@ package enum SQLiteLogSQL {
             _ = arguments.append(contentsOf: StatementArguments([appName]))
         }
         if let messageSearch = normalizedSearch(query.messageSearch) {
-            conditions.append("message LIKE ? ESCAPE '!'")
+            conditions.append("message LIKE ? ESCAPE '!' COLLATE NOCASE")
             _ = arguments.append(contentsOf: StatementArguments(["%\(messageSearch)%"]))
         }
 
         if !conditions.isEmpty {
             sql += " WHERE \(conditions.joined(separator: " AND "))"
         }
-        sql += " ORDER BY timestamp DESC"
+        sql += " ORDER BY timestamp DESC, id DESC"
 
         if let limit = query.limit {
             sql += " LIMIT \(limit)"

@@ -117,8 +117,31 @@ public struct SQLiteLogManager: Sendable {
         SQLiteLoggingService(dispatcher: dispatcher)
     }
 
+    public func logStream(query: LogQuery? = nil) async -> AsyncStream<LogRecord> {
+        let streamQuery = sqliteQuery(query, includePagination: false)
+        let stream = await dispatcher.stream()
+        return AsyncStream { continuation in
+            let task = Task {
+                for await record in stream {
+                    do {
+                        let matches = try await store.query(streamQuery, matchingIDs: [record.id])
+                        for match in matches {
+                            continuation.yield(LogRecord(match))
+                        }
+                    } catch {
+                        continue
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     public func query(_ query: LogQuery) async throws -> [LogRecord] {
-        let input = SQLiteLogQuery(query)
+        let input = sqliteQuery(query, includePagination: true)
         let records = try await store.query(input)
         return records.map { LogRecord($0) }
     }
@@ -167,7 +190,7 @@ extension LogRecord {
 }
 
 extension SQLiteLogQuery {
-    init(_ query: LogQuery) {
+    init(_ query: LogQuery, includePagination: Bool) {
         self.init(
             from: query.from,
             to: query.to,
@@ -176,8 +199,28 @@ extension SQLiteLogQuery {
             tag: query.tag,
             appName: query.appName,
             messageSearch: query.messageSearch,
-            limit: query.limit,
-            offset: query.offset
+            limit: includePagination ? query.limit : nil,
+            offset: includePagination ? query.offset : nil
         )
     }
+}
+
+private func sqliteQuery(
+    _ query: LogQuery?,
+    includePagination: Bool
+) -> SQLiteLogQuery {
+    guard let query else {
+        return SQLiteLogQuery(
+            from: nil,
+            to: nil,
+            levels: nil,
+            label: nil,
+            tag: nil,
+            appName: nil,
+            messageSearch: nil,
+            limit: nil,
+            offset: nil
+        )
+    }
+    return SQLiteLogQuery(query, includePagination: includePagination)
 }

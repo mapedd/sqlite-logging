@@ -38,10 +38,10 @@ package actor SQLiteLogStore {
         self.dateFormatter = formatter
     }
 
-    package func append(_ entry: SQLiteLogEntry) {
+    package func append(_ entry: SQLiteLogEntry) -> SQLiteLogRecord? {
         do {
             let timestamp = dateFormatter.string(from: entry.timestamp)
-            try database.write { db in
+            return try database.write { db in
                 try db.execute(
                     sql: """
                     INSERT INTO logs (
@@ -63,9 +63,24 @@ package actor SQLiteLogStore {
                         entry.line,
                     ]
                 )
+                return SQLiteLogRecord(
+                    id: db.lastInsertedRowID,
+                    timestamp: entry.timestamp,
+                    level: entry.level,
+                    label: entry.label,
+                    tag: entry.tag,
+                    appName: entry.appName,
+                    message: entry.message,
+                    metadataJSON: entry.metadataJSON,
+                    source: entry.source,
+                    file: entry.file,
+                    function: entry.function,
+                    line: UInt(entry.line)
+                )
             }
         } catch {
             // Drop on write error to avoid blocking the pipeline.
+            return nil
         }
     }
 
@@ -73,6 +88,18 @@ package actor SQLiteLogStore {
 
     package func query(_ query: SQLiteLogQuery) async throws -> [SQLiteLogRecord] {
         let (sql, arguments) = SQLiteLogSQL.buildQuery(query)
+        return try await database.read { db in
+            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+            return SQLiteLogSQL.mapRows(rows)
+        }
+    }
+
+    package func query(
+        _ query: SQLiteLogQuery,
+        matchingIDs ids: [Int64]
+    ) async throws -> [SQLiteLogRecord] {
+        guard !ids.isEmpty else { return [] }
+        let (sql, arguments) = SQLiteLogSQL.buildQuery(query, ids: ids)
         return try await database.read { db in
             let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
             return SQLiteLogSQL.mapRows(rows)
