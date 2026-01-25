@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import Logging
 import SQLiteLogging
 import SwiftUI
@@ -5,75 +6,106 @@ import SwiftUI
 public struct SQLiteLogViewer: View {
     private let manager: SQLiteLogManager
     private let style: SQLiteLogViewerStyle
+    private let liveUpdateDebounce: Duration?
 
     @State private var searchText = ""
     @State private var labelFilter = ""
     @State private var selectedLevels = Set(Logger.Level.allCases)
+    @State private var newestOnTop = true
     @State private var fromEnabled = false
     @State private var toEnabled = false
     @State private var fromDate = Date().addingTimeInterval(-3600)
     @State private var toDate = Date()
     @State private var limit = 200
+    @State private var liveUpdatesEnabled = true
+    @State private var isAtBottom = true
+    @State private var pendingScrollToBottomID: Int64?
+    @State private var filtersExpanded = false
     @State private var state: LoadState = .idle
 
     public init(
         manager: SQLiteLogManager,
-        style: SQLiteLogViewerStyle = SQLiteLogViewerStyle()
+        style: SQLiteLogViewerStyle = SQLiteLogViewerStyle(),
+        liveUpdateDebounce: Duration? = .milliseconds(300)
     ) {
         self.manager = manager
         self.style = style
+        self.liveUpdateDebounce = liveUpdateDebounce
     }
 
     public var body: some View {
         NavigationStack {
-            List {
-                filtersSection
-                resultsSection
-            }
-            #if os(iOS) || os(tvOS) || os(watchOS)
-            .listStyle(.insetGrouped)
-            #else
-            .listStyle(.inset)
-            #endif
-            .navigationTitle("Logs")
-            .searchable(text: $searchText, prompt: "Search message")
-            .task(id: filterState) {
-                await load()
+            ScrollViewReader { proxy in
+                let list = List {
+                    filtersSection
+                    resultsSection
+                }
+                #if os(iOS) || os(tvOS) || os(watchOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .navigationTitle("Logs")
+                .searchable(text: $searchText, prompt: "Search message")
+                #if os(iOS) || os(tvOS) || os(watchOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+                .task(id: streamState) {
+                    await loadInitial()
+                    guard liveUpdatesEnabled else { return }
+                    await observeLiveLogs()
+                }
+                if #available(iOS 17, macOS 14, tvOS 17, watchOS 10, *) {
+                    list.onChange(of: pendingScrollToBottomID) { _, newValue in
+                        handlePendingScroll(newValue, proxy: proxy)
+                    }
+                } else {
+                    list.onChange(of: pendingScrollToBottomID) { newValue in
+                        handlePendingScroll(newValue, proxy: proxy)
+                    }
+                }
             }
         }
     }
 
     private var filtersSection: some View {
-        Section("Filters") {
-            TextField("Label", text: $labelFilter)
-                #if os(iOS) || os(tvOS) || os(watchOS)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                #endif
+            Section {
+                DisclosureGroup("Filters", isExpanded: $filtersExpanded) {
+                    TextField("Label", text: $labelFilter)
+                        #if os(iOS) || os(tvOS) || os(watchOS)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        #endif
 
-            levelPicker
+                    levelPicker
 
-            Toggle("From date", isOn: $fromEnabled)
-            if fromEnabled {
-                DatePicker(
-                    "From",
-                    selection: $fromDate,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
+                    Toggle("Newest on top", isOn: $newestOnTop)
+
+                    Toggle("Live updates", isOn: $liveUpdatesEnabled)
+
+                    Toggle("From date", isOn: $fromEnabled)
+                    if fromEnabled {
+                        DatePicker(
+                            "From",
+                            selection: $fromDate,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                    }
+
+                    Toggle("To date", isOn: $toEnabled)
+                    if toEnabled {
+                        DatePicker(
+                            "To",
+                            selection: $toDate,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                    }
+
+                    Stepper("Limit: \(limit)", value: $limit, in: 50...2000, step: 50)
+                }
             }
-
-            Toggle("To date", isOn: $toEnabled)
-            if toEnabled {
-                DatePicker(
-                    "To",
-                    selection: $toDate,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
-            }
-
-            Stepper("Limit: \(limit)", value: $limit, in: 50...2000, step: 50)
         }
-    }
 
     private var levelPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -114,6 +146,16 @@ public struct SQLiteLogViewer: View {
                 } else {
                     ForEach(records, id: \.id) { record in
                         LogRow(record: record, style: style)
+                            .onAppear {
+                                if !newestOnTop, record.id == bottomRecordID {
+                                    isAtBottom = true
+                                }
+                            }
+                            .onDisappear {
+                                if !newestOnTop, record.id == bottomRecordID {
+                                    isAtBottom = false
+                                }
+                            }
                     }
                 }
             }
@@ -131,23 +173,93 @@ public struct SQLiteLogViewer: View {
         )
     }
 
+    private var streamState: StreamState {
+        StreamState(
+            filter: filterState,
+            liveUpdatesEnabled: liveUpdatesEnabled,
+            debounce: liveUpdateDebounce,
+            newestOnTop: newestOnTop
+        )
+    }
+
     @MainActor
-    private func load() async {
-        state = .loading
-        let query = LogQuery(
+    private func loadInitial() async {
+        if shouldShowLoadingState {
+            state = .loading
+        }
+        await refreshFromDatabase(showLoading: shouldShowLoadingState)
+    }
+
+    private var shouldShowLoadingState: Bool {
+        switch state {
+        case .idle, .failed:
+            return true
+        case .loading, .loaded:
+            return false
+        }
+    }
+
+    private var currentQuery: LogQuery {
+        LogQuery(
             from: filterState.from,
             to: filterState.to,
             levels: filterState.levelsFilter,
             label: filterState.labelFilter,
             messageSearch: filterState.searchFilter,
-            limit: filterState.limit
+            limit: filterState.limit,
+            order: newestOnTop ? .newestFirst : .oldestFirst
         )
+    }
+
+    private func observeLiveLogs() async {
+        let stream = await manager.logStream(query: currentQuery)
+        if let debounce = liveUpdateDebounce {
+            let debounced = stream.debounce(for: debounce, clock: ContinuousClock())
+            for await _ in debounced {
+                await refreshFromDatabase(showLoading: false)
+            }
+        } else {
+            for await _ in stream {
+                await refreshFromDatabase(showLoading: false)
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshFromDatabase(showLoading: Bool) async {
+        if showLoading {
+            state = .loading
+        }
         do {
-            let records = try await manager.query(query)
+            let records = try await manager.query(currentQuery)
+            if Task.isCancelled { return }
             state = .loaded(records)
+            if shouldStickToBottom {
+                pendingScrollToBottomID = records.last?.id
+            }
         } catch {
+            if Task.isCancelled { return }
             state = .failed("Failed to load logs.")
         }
+    }
+
+    private var shouldStickToBottom: Bool {
+        !newestOnTop && isAtBottom
+    }
+
+    private var bottomRecordID: Int64? {
+        guard case .loaded(let records) = state else { return nil }
+        return records.last?.id
+    }
+
+    @MainActor
+    private func handlePendingScroll(
+        _ targetID: Int64?,
+        proxy: ScrollViewProxy
+    ) {
+        guard let targetID else { return }
+        proxy.scrollTo(targetID, anchor: .bottom)
+        pendingScrollToBottomID = nil
     }
 
     private func toggle(_ level: Logger.Level) {
@@ -193,6 +305,13 @@ private struct FilterState: Equatable {
     }
 }
 
+private struct StreamState: Equatable {
+    let filter: FilterState
+    let liveUpdatesEnabled: Bool
+    let debounce: Duration?
+    let newestOnTop: Bool
+}
+
 private struct LevelToggle: View {
     let level: Logger.Level
     let color: Color
@@ -218,6 +337,7 @@ private struct LevelToggle: View {
 private struct LogRow: View {
     let record: LogRecord
     let style: SQLiteLogViewerStyle
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -228,7 +348,7 @@ private struct LogRow: View {
                 Text(record.message)
                     .font(style.logFont)
                     .foregroundStyle(levelColor)
-                    .lineLimit(2)
+                    .lineLimit(isCompact ? 1 : 2)
             }
 
             HStack(spacing: 8) {
@@ -246,16 +366,29 @@ private struct LogRow: View {
     }
 
     private var formattedDate: String {
-        Self.formatter.string(from: record.timestamp)
+        isCompact
+            ? Self.timeFormatter.string(from: record.timestamp)
+            : Self.dateTimeFormatter.string(from: record.timestamp)
+    }
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
     }
 
     private var levelColor: Color {
         style.color(for: record.level)
     }
 
-    private static let formatter: DateFormatter = {
+    private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
         formatter.timeStyle = .medium
         return formatter
     }()

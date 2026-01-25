@@ -139,6 +139,126 @@ import Testing
     #expect(alphaRecord.line == 10)
 }
 
+@Test func queryOrderingNewestAndOldestFirst() async throws {
+    let manager = sharedManager()
+    let label = "SortOrder-\(UUID().uuidString)"
+    let base = Date(timeIntervalSince1970: 1_700_000_100)
+
+    await manager.record(
+        timestamp: base,
+        level: .info,
+        message: "first \(label)",
+        label: label
+    )
+    await manager.record(
+        timestamp: base,
+        level: .info,
+        message: "second \(label)",
+        label: label
+    )
+    await manager.record(
+        timestamp: base.addingTimeInterval(10),
+        level: .info,
+        message: "third \(label)",
+        label: label
+    )
+
+    await manager.flush()
+
+    let newest = try await manager.query(
+        LogQuery(label: label, order: .newestFirst)
+    )
+    #expect(
+        newest.map(\.message) == [
+            "third \(label)",
+            "second \(label)",
+            "first \(label)",
+        ]
+    )
+
+    let oldest = try await manager.query(
+        LogQuery(label: label, order: .oldestFirst)
+    )
+    #expect(
+        oldest.map(\.message) == [
+            "first \(label)",
+            "second \(label)",
+            "third \(label)",
+        ]
+    )
+}
+
+@Test func logStreamEmitsInInsertOrder() async throws {
+    let manager = sharedManager()
+    let label = "StreamOrder-\(UUID().uuidString)"
+    let stream = await manager.logStream(query: LogQuery(label: label))
+    let base = Date()
+    var iterator = stream.makeAsyncIterator()
+    let expectedMessages = [
+        "first \(label)",
+        "second \(label)",
+        "third \(label)",
+    ]
+
+    await manager.record(
+        timestamp: base,
+        level: .info,
+        message: expectedMessages[0],
+        label: label
+    )
+    let first = try #require(await iterator.next())
+    #expect(first.message == expectedMessages[0])
+    try await assertOrdering(
+        manager: manager,
+        label: label,
+        expected: Array(expectedMessages.prefix(1))
+    )
+
+    await manager.record(
+        timestamp: base.addingTimeInterval(1),
+        level: .info,
+        message: expectedMessages[1],
+        label: label
+    )
+    let second = try #require(await iterator.next())
+    #expect(second.message == expectedMessages[1])
+    try await assertOrdering(
+        manager: manager,
+        label: label,
+        expected: Array(expectedMessages.prefix(2))
+    )
+
+    await manager.record(
+        timestamp: base.addingTimeInterval(2),
+        level: .info,
+        message: expectedMessages[2],
+        label: label
+    )
+    let third = try #require(await iterator.next())
+    #expect(third.message == expectedMessages[2])
+    try await assertOrdering(
+        manager: manager,
+        label: label,
+        expected: expectedMessages
+    )
+}
+
+private func assertOrdering(
+    manager: SQLiteLogManager,
+    label: String,
+    expected: [String]
+) async throws {
+    let oldest = try await manager.query(
+        LogQuery(label: label, order: .oldestFirst)
+    )
+    #expect(oldest.map(\.message) == expected)
+
+    let newest = try await manager.query(
+        LogQuery(label: label, order: .newestFirst)
+    )
+    #expect(newest.map(\.message) == expected.reversed())
+}
+
 private func sharedManager() -> SQLiteLogManager {
     TestLogging.sharedManager
 }

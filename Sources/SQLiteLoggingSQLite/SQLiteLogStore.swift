@@ -35,9 +35,9 @@ package actor SQLiteLogStore {
         self.database = database
     }
 
-    package func append(_ entry: SQLiteLogEntry) {
+    package func append(_ entry: SQLiteLogEntry) -> SQLiteLogRecord? {
         do {
-            try database.write { db in
+            return try database.write { db in
                 try SQLiteLogRecord
                     .insert {
                         (
@@ -69,9 +69,24 @@ package actor SQLiteLogStore {
                         )
                     }
                     .execute(db)
+                return SQLiteLogRecord(
+                    id: db.lastInsertedRowID,
+                    timestamp: entry.timestamp,
+                    level: entry.level,
+                    label: entry.label,
+                    tag: entry.tag,
+                    appName: entry.appName,
+                    message: entry.message,
+                    metadataJSON: entry.metadataJSON,
+                    source: entry.source,
+                    file: entry.file,
+                    function: entry.function,
+                    line: entry.line
+                )
             }
         } catch {
             // Drop on write error to avoid blocking the pipeline.
+            return nil
         }
     }
 
@@ -79,6 +94,17 @@ package actor SQLiteLogStore {
 
     package func query(_ query: SQLiteLogQuery) async throws -> [SQLiteLogRecord] {
         let statement = SQLiteLogSQL.buildQuery(query)
+        return try await database.read { db in
+            try statement.fetchAll(db)
+        }
+    }
+
+    package func query(
+        _ query: SQLiteLogQuery,
+        matchingIDs ids: [Int64]
+    ) async throws -> [SQLiteLogRecord] {
+        guard !ids.isEmpty else { return [] }
+        let statement = SQLiteLogSQL.buildQuery(query, ids: ids)
         return try await database.read { db in
             try statement.fetchAll(db)
         }

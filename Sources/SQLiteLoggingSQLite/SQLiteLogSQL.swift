@@ -3,10 +3,14 @@ import StructuredQueriesSQLite
 
 package enum SQLiteLogSQL {
     package static func buildQuery(
-        _ query: SQLiteLogQuery
+        _ query: SQLiteLogQuery,
+        ids: [Int64]? = nil
     ) -> SelectOf<SQLiteLogRecord> {
         var statement = SQLiteLogRecord.all
 
+        if let ids, !ids.isEmpty {
+            statement = statement.where { $0.id.in(ids) }
+        }
         if let from = query.from {
             statement = statement.where { $0.timestamp >= from }
         }
@@ -17,7 +21,7 @@ package enum SQLiteLogSQL {
             statement = statement.where { $0.level.in(levels) }
         }
         if let label = query.label {
-            statement = statement.where { $0.label == label }
+            statement = statement.where { $0.label.collate(.nocase) == label }
         }
         if let tag = query.tag {
             statement = statement.where { $0.tag == tag }
@@ -27,11 +31,17 @@ package enum SQLiteLogSQL {
         }
         if let messageSearch = normalizedSearch(query.messageSearch) {
             statement = statement.where {
-                $0.message.like("%\(messageSearch)%", escape: "!")
+                $0.message.collate(.nocase).like("%\(messageSearch)%", escape: "!")
             }
         }
 
-        var ordered = statement.order { $0.timestamp.desc() }
+        var ordered: SelectOf<SQLiteLogRecord>
+        switch query.order {
+        case .newestFirst:
+            ordered = statement.order { ($0.timestamp.desc(), $0.id.desc()) }
+        case .oldestFirst:
+            ordered = statement.order { ($0.timestamp.asc(), $0.id.asc()) }
+        }
         if let limit = query.limit {
             ordered = ordered.limit(limit, offset: query.offset)
         } else if let offset = query.offset {

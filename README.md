@@ -14,7 +14,8 @@ Most apps already use swift-log for structured logging. SQLiteLogging drops in a
 - SQLite storage with optional file-backed persistence or in-memory mode.
 - Backpressure control with queue depth + drop policy and periodic drop summaries.
 - Rich querying by time range, level, label, tag, text, and pagination.
-- SwiftUI log viewer with filters, search, and per-level styling.
+- AsyncStream live updates with optional debounce and SQLite-backed filtering.
+- SwiftUI log viewer with collapsible filters, search, ordering toggle, and per-level styling.
 - Works across Apple platforms (iOS, macOS, tvOS, watchOS).
 
 ## Requirements
@@ -85,6 +86,15 @@ let records = try await manager.query(
 
 Each `LogRecord` includes timestamp, level, label, message, metadata JSON, and source location.
 
+### Stream live logs
+
+```swift
+let stream = await manager.logStream(query: LogQuery(messageSearch: "db"))
+for await record in stream {
+    print(record.message)
+}
+```
+
 ### Embed the viewer
 
 ```swift
@@ -105,6 +115,7 @@ You can customize colors and fonts via `SQLiteLogViewerStyle`.
 ## Sample app
 
 The sample app lives in `App/` and uses `SQLiteLogViewer` to browse logs. It is generated using XcodeGen via `project.yml`.
+It generates a new random log every second so you can see live updates in the viewer.
 
 ### Generate the Xcode project with XcodeGen
 

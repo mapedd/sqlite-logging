@@ -87,6 +87,11 @@ package struct SQLiteLogRecord: Sendable, Equatable {
     }
 }
 
+package enum SQLiteLogSortOrder: Sendable {
+    case newestFirst
+    case oldestFirst
+}
+
 package struct SQLiteLogQuery: Sendable {
     package var from: Date?
     package var to: Date?
@@ -97,6 +102,7 @@ package struct SQLiteLogQuery: Sendable {
     package var messageSearch: String?
     package var limit: Int?
     package var offset: Int?
+    package var order: SQLiteLogSortOrder
 
     package init(
         from: Date?,
@@ -107,7 +113,8 @@ package struct SQLiteLogQuery: Sendable {
         appName: String?,
         messageSearch: String?,
         limit: Int?,
-        offset: Int?
+        offset: Int?,
+        order: SQLiteLogSortOrder
     ) {
         self.from = from
         self.to = to
@@ -118,5 +125,6 @@ package struct SQLiteLogQuery: Sendable {
         self.messageSearch = messageSearch
         self.limit = limit
         self.offset = offset
+        self.order = order
     }
 }
