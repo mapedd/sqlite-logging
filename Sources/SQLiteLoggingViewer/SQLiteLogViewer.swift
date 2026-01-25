@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import Logging
 import SQLiteLogging
 import SwiftUI
@@ -186,19 +187,7 @@ public struct SQLiteLogViewer: View {
         if shouldShowLoadingState {
             state = .loading
         }
-        let query = currentQuery
-        do {
-            let records = try await manager.query(query)
-            if Task.isCancelled { return }
-            let sorted = sortedRecords(records)
-            state = .loaded(sorted)
-            if shouldStickToBottom {
-                pendingScrollToBottomID = sorted.last?.id
-            }
-        } catch {
-            if Task.isCancelled { return }
-            state = .failed("Failed to load logs.")
-        }
+        await refreshFromDatabase(showLoading: shouldShowLoadingState)
     }
 
     private var shouldShowLoadingState: Bool {
@@ -217,75 +206,45 @@ public struct SQLiteLogViewer: View {
             levels: filterState.levelsFilter,
             label: filterState.labelFilter,
             messageSearch: filterState.searchFilter,
-            limit: filterState.limit
+            limit: filterState.limit,
+            order: newestOnTop ? .newestFirst : .oldestFirst
         )
     }
 
     private func observeLiveLogs() async {
         let stream = await manager.logStream(query: currentQuery)
         if let debounce = liveUpdateDebounce {
-            await observeDebounced(stream, interval: debounce)
+            let debounced = stream.debounce(for: debounce, clock: ContinuousClock())
+            for await _ in debounced {
+                await refreshFromDatabase(showLoading: false)
+            }
         } else {
-            for await record in stream {
-                await applyRecords([record], reset: false)
+            for await _ in stream {
+                await refreshFromDatabase(showLoading: false)
             }
         }
-    }
-
-    private func observeDebounced(
-        _ stream: AsyncStream<LogRecord>,
-        interval: Duration
-    ) async {
-        let buffer = DebounceBuffer()
-        var flushTask: Task<Void, Never>?
-
-        for await record in stream {
-            await buffer.append(record)
-            flushTask?.cancel()
-            flushTask = Task {
-                try? await Task.sleep(for: interval)
-                guard !Task.isCancelled else { return }
-                let records = await buffer.drain()
-                await applyRecords(records, reset: false)
-            }
-        }
-
-        flushTask?.cancel()
-        let remaining = await buffer.drain()
-        await applyRecords(remaining, reset: false)
     }
 
     @MainActor
-    private func applyRecords(_ newRecords: [LogRecord], reset: Bool) async {
-        guard !newRecords.isEmpty else { return }
-        var updated: [LogRecord]
-        switch state {
-        case .loaded(let records) where !reset:
-            updated = records + newRecords
-        default:
-            updated = newRecords
+    private func refreshFromDatabase(showLoading: Bool) async {
+        if showLoading {
+            state = .loading
         }
-        updated = sortedRecords(updated)
-        if updated.count > limit {
-            updated = Array(updated.prefix(limit))
-        }
-        state = .loaded(updated)
-        if shouldStickToBottom {
-            pendingScrollToBottomID = updated.last?.id
+        do {
+            let records = try await manager.query(currentQuery)
+            if Task.isCancelled { return }
+            state = .loaded(records)
+            if shouldStickToBottom {
+                pendingScrollToBottomID = records.last?.id
+            }
+        } catch {
+            if Task.isCancelled { return }
+            state = .failed("Failed to load logs.")
         }
     }
 
     private var shouldStickToBottom: Bool {
         !newestOnTop && isAtBottom
-    }
-
-    private func sortedRecords(_ records: [LogRecord]) -> [LogRecord] {
-        records.sorted {
-            if $0.timestamp != $1.timestamp {
-                return newestOnTop ? $0.timestamp > $1.timestamp : $0.timestamp < $1.timestamp
-            }
-            return newestOnTop ? $0.id > $1.id : $0.id < $1.id
-        }
     }
 
     private var bottomRecordID: Int64? {
@@ -433,20 +392,6 @@ private struct LogRow: View {
         formatter.timeStyle = .medium
         return formatter
     }()
-}
-
-private actor DebounceBuffer {
-    private var records: [LogRecord] = []
-
-    func append(_ record: LogRecord) {
-        records.append(record)
-    }
-
-    func drain() -> [LogRecord] {
-        let drained = records
-        records.removeAll()
-        return drained
-    }
 }
 
 #if DEBUG

@@ -26,6 +26,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/sqlite-data.git", from: "1.5.0"),
         .package(url: "https://github.com/pointfreeco/swift-structured-queries", from: "0.28.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.9.0"),
+        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
     ],
     targets: [
         .target(
@@ -47,6 +48,7 @@ let package = Package(
             name: "SQLiteLoggingViewer",
             dependencies: [
                 "SQLiteLogging",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ]
         ),
         .testTarget(

@@ -27,6 +27,7 @@ public struct LogQuery: Sendable {
     public var messageSearch: String?
     public var limit: Int?
     public var offset: Int?
+    public var order: LogSortOrder
 
     public init(
         from: Date? = nil,
@@ -37,7 +38,8 @@ public struct LogQuery: Sendable {
         appName: String? = nil,
         messageSearch: String? = nil,
         limit: Int? = nil,
-        offset: Int? = nil
+        offset: Int? = nil,
+        order: LogSortOrder = .newestFirst
     ) {
         self.from = from
         self.to = to
@@ -48,7 +50,13 @@ public struct LogQuery: Sendable {
         self.messageSearch = messageSearch
         self.limit = limit
         self.offset = offset
+        self.order = order
     }
+}
+
+public enum LogSortOrder: Sendable {
+    case newestFirst
+    case oldestFirst
 }
 
 public struct SQLiteLogManager: Sendable {
@@ -200,7 +208,8 @@ extension SQLiteLogQuery {
             appName: query.appName,
             messageSearch: query.messageSearch,
             limit: includePagination ? query.limit : nil,
-            offset: includePagination ? query.offset : nil
+            offset: includePagination ? query.offset : nil,
+            order: query.order == .newestFirst ? .newestFirst : .oldestFirst
         )
     }
 }
@@ -219,7 +228,8 @@ private func sqliteQuery(
             appName: nil,
             messageSearch: nil,
             limit: nil,
-            offset: nil
+            offset: nil,
+            order: .newestFirst
         )
     }
     return SQLiteLogQuery(query, includePagination: includePagination)

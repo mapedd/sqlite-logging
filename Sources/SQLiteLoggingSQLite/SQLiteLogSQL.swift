@@ -35,7 +35,13 @@ package enum SQLiteLogSQL {
             }
         }
 
-        var ordered = statement.order { ($0.timestamp.desc(), $0.id.desc()) }
+        var ordered: SelectOf<SQLiteLogRecord>
+        switch query.order {
+        case .newestFirst:
+            ordered = statement.order { ($0.timestamp.desc(), $0.id.desc()) }
+        case .oldestFirst:
+            ordered = statement.order { ($0.timestamp.asc(), $0.id.asc()) }
+        }
         if let limit = query.limit {
             ordered = ordered.limit(limit, offset: query.offset)
         } else if let offset = query.offset {
