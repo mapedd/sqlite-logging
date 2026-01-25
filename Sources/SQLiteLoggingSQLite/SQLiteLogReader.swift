@@ -12,10 +12,9 @@ package actor SQLiteLogReader {
     }
 
     package func query(_ query: SQLiteLogQuery) async throws -> [SQLiteLogRecord] {
-        let (sql, arguments) = SQLiteLogSQL.buildQuery(query)
+        let statement = SQLiteLogSQL.buildQuery(query)
         return try await database.read { db in
-            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            return SQLiteLogSQL.mapRows(rows)
+            try statement.fetchAll(db)
         }
     }
 }

@@ -24,6 +24,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.3"),
         .package(url: "https://github.com/pointfreeco/sqlite-data.git", from: "1.5.0"),
+        .package(url: "https://github.com/pointfreeco/swift-structured-queries", from: "0.28.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.9.0"),
     ],
     targets: [
@@ -39,6 +40,7 @@ let package = Package(
             dependencies: [
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
             ]
         ),
         .target(
