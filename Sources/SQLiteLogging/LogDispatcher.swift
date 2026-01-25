@@ -2,6 +2,9 @@ import Foundation
 import Logging
 import SQLiteLoggingSQLite
 
+/// Coordinates async log writes and live streaming.
+/// - note: Implemented as an actor to isolate mutable state (buffer, drops, stream continuations)
+///   under Swift Concurrency, avoiding data races without Dispatch queues.
 actor LogDispatcher {
     private let store: SQLiteLogStore
     private let queueDepth: Int
