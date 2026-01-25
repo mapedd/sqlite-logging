@@ -1,0 +1,37 @@
+name: SQLiteLoggingApp
+options:
+  bundleIdPrefix: com.mapedd
+  deploymentTarget:
+    iOS: "26.0"
+
+packages:
+  SQLiteLogging:
+    path: .
+    group: ""
+    excludeFromProject: false
+
+targets:
+  SQLiteLoggingApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+    resources:
+      - path: App/Resources
+    dependencies:
+      - package: SQLiteLogging
+        products:
+          - SQLiteLoggingViewer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mapedd.SQLiteLoggingApp
+        SWIFT_VERSION: 6.0
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: SQLiteLoggingApp
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations~iphone:
+          - UIInterfaceOrientationPortrait
