@@ -35,7 +35,7 @@ public struct SQLiteLogViewer: View {
     public var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                List {
+                let list = List {
                     filtersSection
                     resultsSection
                 }
@@ -51,10 +51,14 @@ public struct SQLiteLogViewer: View {
                     guard liveUpdatesEnabled else { return }
                     await observeLiveLogs()
                 }
-                .onChange(of: pendingScrollToBottomID) { _, newValue in
-                    guard let target = newValue else { return }
-                    proxy.scrollTo(target, anchor: .bottom)
-                    pendingScrollToBottomID = nil
+                if #available(iOS 17, macOS 14, tvOS 17, watchOS 10, *) {
+                    list.onChange(of: pendingScrollToBottomID) { _, newValue in
+                        handlePendingScroll(newValue, proxy: proxy)
+                    }
+                } else {
+                    list.onChange(of: pendingScrollToBottomID) { newValue in
+                        handlePendingScroll(newValue, proxy: proxy)
+                    }
                 }
             }
         }
@@ -283,6 +287,16 @@ public struct SQLiteLogViewer: View {
     private var bottomRecordID: Int64? {
         guard case .loaded(let records) = state else { return nil }
         return records.last?.id
+    }
+
+    @MainActor
+    private func handlePendingScroll(
+        _ targetID: Int64?,
+        proxy: ScrollViewProxy
+    ) {
+        guard let targetID else { return }
+        proxy.scrollTo(targetID, anchor: .bottom)
+        pendingScrollToBottomID = nil
     }
 
     private func toggle(_ level: Logger.Level) {
