@@ -185,7 +185,7 @@ extension LogRecord {
         self.source = record.source
         self.file = record.file
         self.function = record.function
-        self.line = record.line
+        self.line = UInt(clamping: record.line)
     }
 }
 

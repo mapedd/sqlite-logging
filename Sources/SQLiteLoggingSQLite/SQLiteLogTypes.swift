@@ -1,4 +1,5 @@
 import Foundation
+import StructuredQueriesSQLite
 
 package struct SQLiteLogEntry: Sendable {
     package var timestamp: Date
@@ -40,19 +41,22 @@ package struct SQLiteLogEntry: Sendable {
     }
 }
 
+@Table("logs")
 package struct SQLiteLogRecord: Sendable, Equatable {
     package var id: Int64
     package var timestamp: Date
     package var level: String
     package var label: String
     package var tag: String
+    @Column("app")
     package var appName: String
     package var message: String
+    @Column("metadata_json")
     package var metadataJSON: String
     package var source: String
     package var file: String
     package var function: String
-    package var line: UInt
+    package var line: Int64
 
     package init(
         id: Int64,
@@ -66,7 +70,7 @@ package struct SQLiteLogRecord: Sendable, Equatable {
         source: String,
         file: String,
         function: String,
-        line: UInt
+        line: Int64
     ) {
         self.id = id
         self.timestamp = timestamp

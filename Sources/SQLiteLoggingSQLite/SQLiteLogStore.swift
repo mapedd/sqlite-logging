@@ -1,12 +1,12 @@
 import Foundation
 import GRDB
 import SQLiteData
+import StructuredQueriesSQLite
 
 package actor SQLiteLogStore {
     package let storage: SQLiteLogStoreStorage
     private let databasePath: String
     private let database: DatabaseQueue
-    private let dateFormatter: ISO8601DateFormatter
 
     package init(
         storage: SQLiteLogStoreStorage,
@@ -25,8 +25,6 @@ package actor SQLiteLogStore {
                 attributes: nil
             )
         }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let database = try DatabaseQueue(path: databasePath)
         try Self.migrate(database)
         if let maxDatabaseBytes {
@@ -35,34 +33,42 @@ package actor SQLiteLogStore {
         self.storage = storage
         self.databasePath = databasePath
         self.database = database
-        self.dateFormatter = formatter
     }
 
     package func append(_ entry: SQLiteLogEntry) -> SQLiteLogRecord? {
         do {
-            let timestamp = dateFormatter.string(from: entry.timestamp)
             return try database.write { db in
-                try db.execute(
-                    sql: """
-                    INSERT INTO logs (
-                      timestamp, level, label, tag, app, message, metadata_json,
-                      source, file, function, line
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    arguments: [
-                        timestamp,
-                        entry.level,
-                        entry.label,
-                        entry.tag,
-                        entry.appName,
-                        entry.message,
-                        entry.metadataJSON,
-                        entry.source,
-                        entry.file,
-                        entry.function,
-                        entry.line,
-                    ]
-                )
+                try SQLiteLogRecord
+                    .insert {
+                        (
+                            $0.timestamp,
+                            $0.level,
+                            $0.label,
+                            $0.tag,
+                            $0.appName,
+                            $0.message,
+                            $0.metadataJSON,
+                            $0.source,
+                            $0.file,
+                            $0.function,
+                            $0.line
+                        )
+                    } values: {
+                        (
+                            entry.timestamp,
+                            entry.level,
+                            entry.label,
+                            entry.tag,
+                            entry.appName,
+                            entry.message,
+                            entry.metadataJSON,
+                            entry.source,
+                            entry.file,
+                            entry.function,
+                            entry.line
+                        )
+                    }
+                    .execute(db)
                 return SQLiteLogRecord(
                     id: db.lastInsertedRowID,
                     timestamp: entry.timestamp,
@@ -75,7 +81,7 @@ package actor SQLiteLogStore {
                     source: entry.source,
                     file: entry.file,
                     function: entry.function,
-                    line: UInt(entry.line)
+                    line: entry.line
                 )
             }
         } catch {
@@ -87,10 +93,9 @@ package actor SQLiteLogStore {
     package func flush() {}
 
     package func query(_ query: SQLiteLogQuery) async throws -> [SQLiteLogRecord] {
-        let (sql, arguments) = SQLiteLogSQL.buildQuery(query)
+        let statement = SQLiteLogSQL.buildQuery(query)
         return try await database.read { db in
-            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            return SQLiteLogSQL.mapRows(rows)
+            try statement.fetchAll(db)
         }
     }
 
@@ -99,10 +104,9 @@ package actor SQLiteLogStore {
         matchingIDs ids: [Int64]
     ) async throws -> [SQLiteLogRecord] {
         guard !ids.isEmpty else { return [] }
-        let (sql, arguments) = SQLiteLogSQL.buildQuery(query, ids: ids)
+        let statement = SQLiteLogSQL.buildQuery(query, ids: ids)
         return try await database.read { db in
-            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            return SQLiteLogSQL.mapRows(rows)
+            try statement.fetchAll(db)
         }
     }
 
@@ -120,28 +124,44 @@ package actor SQLiteLogStore {
     private static func migrate(_ database: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("create-logs") { db in
-            try db.execute(
-                sql: """
-                CREATE TABLE IF NOT EXISTS logs (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  timestamp TEXT NOT NULL,
-                  level TEXT NOT NULL,
-                  label TEXT NOT NULL,
-                  tag TEXT NOT NULL,
-                  app TEXT NOT NULL,
-                  message TEXT NOT NULL,
-                  metadata_json TEXT NOT NULL,
-                  source TEXT NOT NULL,
-                  file TEXT NOT NULL,
-                  function TEXT NOT NULL,
-                  line INTEGER NOT NULL
-                )
-                """
+            try db.create(table: "logs", ifNotExists: true) { table in
+                table.autoIncrementedPrimaryKey("id")
+                table.column("timestamp", .text).notNull()
+                table.column("level", .text).notNull()
+                table.column("label", .text).notNull()
+                table.column("tag", .text).notNull()
+                table.column("app", .text).notNull()
+                table.column("message", .text).notNull()
+                table.column("metadata_json", .text).notNull()
+                table.column("source", .text).notNull()
+                table.column("file", .text).notNull()
+                table.column("function", .text).notNull()
+                table.column("line", .integer).notNull()
+            }
+            try db.create(
+                index: "logs_timestamp_idx",
+                on: "logs",
+                columns: ["timestamp"],
+                ifNotExists: true
             )
-            try db.execute(sql: "CREATE INDEX IF NOT EXISTS logs_timestamp_idx ON logs(timestamp)")
-            try db.execute(sql: "CREATE INDEX IF NOT EXISTS logs_level_idx ON logs(level)")
-            try db.execute(sql: "CREATE INDEX IF NOT EXISTS logs_tag_idx ON logs(tag)")
-            try db.execute(sql: "CREATE INDEX IF NOT EXISTS logs_label_idx ON logs(label)")
+            try db.create(
+                index: "logs_level_idx",
+                on: "logs",
+                columns: ["level"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "logs_tag_idx",
+                on: "logs",
+                columns: ["tag"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "logs_label_idx",
+                on: "logs",
+                columns: ["label"],
+                ifNotExists: true
+            )
         }
         try migrator.migrate(database)
     }
