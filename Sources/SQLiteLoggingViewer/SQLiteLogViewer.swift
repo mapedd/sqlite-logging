@@ -19,7 +19,7 @@ public struct SQLiteLogViewer: View {
     @State private var liveUpdatesEnabled = true
     @State private var isAtBottom = true
     @State private var pendingScrollToBottomID: Int64?
-    @State private var filtersExpanded = true
+    @State private var filtersExpanded = false
     @State private var state: LoadState = .idle
 
     public init(
@@ -46,6 +46,10 @@ public struct SQLiteLogViewer: View {
                 #endif
                 .navigationTitle("Logs")
                 .searchable(text: $searchText, prompt: "Search message")
+                #if os(iOS) || os(tvOS) || os(watchOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
                 .task(id: streamState) {
                     await loadInitial()
                     guard liveUpdatesEnabled else { return }
@@ -374,6 +378,7 @@ private struct LevelToggle: View {
 private struct LogRow: View {
     let record: LogRecord
     let style: SQLiteLogViewerStyle
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -384,7 +389,7 @@ private struct LogRow: View {
                 Text(record.message)
                     .font(style.logFont)
                     .foregroundStyle(levelColor)
-                    .lineLimit(2)
+                    .lineLimit(isCompact ? 1 : 2)
             }
 
             HStack(spacing: 8) {
@@ -402,16 +407,29 @@ private struct LogRow: View {
     }
 
     private var formattedDate: String {
-        Self.formatter.string(from: record.timestamp)
+        isCompact
+            ? Self.timeFormatter.string(from: record.timestamp)
+            : Self.dateTimeFormatter.string(from: record.timestamp)
+    }
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
     }
 
     private var levelColor: Color {
         style.color(for: record.level)
     }
 
-    private static let formatter: DateFormatter = {
+    private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
         formatter.timeStyle = .medium
         return formatter
     }()
