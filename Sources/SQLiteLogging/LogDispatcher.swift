@@ -167,7 +167,6 @@ actor LogDispatcher {
             .joined(separator: ", ")
         let message = "Dropped log events due to backpressure: \(summary)"
         let event = LogEvent(
-            uuid: UUID(),
             timestamp: Date(),
             level: .warning,
             message: message,

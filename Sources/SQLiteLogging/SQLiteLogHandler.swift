@@ -34,7 +34,6 @@ public struct SQLiteLogHandler: LogHandler {
         let combined = self.metadata.merging(metadata ?? [:]) { _, new in new }
         let metadataJSON = MetadataJSONEncoder.encode(combined)
         let event = LogEvent(
-            uuid: UUID(),
             timestamp: Date(),
             level: level,
             message: message.description,

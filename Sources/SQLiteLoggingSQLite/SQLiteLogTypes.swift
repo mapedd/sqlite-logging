@@ -2,7 +2,6 @@ import Foundation
 import StructuredQueriesSQLite
 
 package struct SQLiteLogEntry: Sendable {
-    package var uuid: String
     package var timestamp: Date
     package var level: String
     package var label: String
@@ -16,7 +15,6 @@ package struct SQLiteLogEntry: Sendable {
     package var line: Int64
 
     package init(
-        uuid: String,
         timestamp: Date,
         level: String,
         label: String,
@@ -29,7 +27,6 @@ package struct SQLiteLogEntry: Sendable {
         function: String,
         line: Int64
     ) {
-        self.uuid = uuid
         self.timestamp = timestamp
         self.level = level
         self.label = label
@@ -47,8 +44,6 @@ package struct SQLiteLogEntry: Sendable {
 @Table("logs")
 package struct SQLiteLogRecord: Sendable, Equatable {
     package var id: Int64
-    @Column("uuid")
-    package var uuid: String
     package var timestamp: Date
     package var level: String
     package var label: String
@@ -65,7 +60,6 @@ package struct SQLiteLogRecord: Sendable, Equatable {
 
     package init(
         id: Int64,
-        uuid: String,
         timestamp: Date,
         level: String,
         label: String,
@@ -79,7 +73,6 @@ package struct SQLiteLogRecord: Sendable, Equatable {
         line: Int64
     ) {
         self.id = id
-        self.uuid = uuid
         self.timestamp = timestamp
         self.level = level
         self.label = label

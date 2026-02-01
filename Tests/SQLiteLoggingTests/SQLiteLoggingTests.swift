@@ -259,6 +259,122 @@ private func assertOrdering(
     #expect(newest.map(\.message) == expected.reversed())
 }
 
+@Test func timestampOrderingWithSameDate() async throws {
+    let manager = sharedManager()
+    let label = "SameTimestamp-\(UUID().uuidString)"
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    
+    // Insert multiple logs with same timestamp but different IDs
+    await manager.record(
+        timestamp: base,
+        level: .info,
+        message: "first-inserted \(label)",
+        label: label
+    )
+    try await Task.sleep(for: .milliseconds(10))
+    await manager.record(
+        timestamp: base,
+        level: .info,
+        message: "second-inserted \(label)",
+        label: label
+    )
+    try await Task.sleep(for: .milliseconds(10))
+    await manager.record(
+        timestamp: base,
+        level: .info,
+        message: "third-inserted \(label)",
+        label: label
+    )
+    
+    await manager.flush()
+    
+    // With same timestamp, should be ordered by ID (insertion order)
+    let newest = try await manager.query(LogQuery(label: label, order: .newestFirst))
+    #expect(newest.count == 3)
+    // IDs are sequential, so newest should be last inserted (highest ID)
+    #expect(newest.first?.message == "third-inserted \(label)")
+    #expect(newest.last?.message == "first-inserted \(label)")
+    
+    let oldest = try await manager.query(LogQuery(label: label, order: .oldestFirst))
+    #expect(oldest.first?.message == "first-inserted \(label)")
+    #expect(oldest.last?.message == "third-inserted \(label)")
+}
+
+@Test func timestampOrderingAcrossYearBoundary() async throws {
+    let manager = sharedManager()
+    let label = "YearBoundary-\(UUID().uuidString)"
+    
+    // Test ordering across year boundary (2023 -> 2024)
+    let dec2023 = Date(timeIntervalSince1970: 1_703_923_200) // Dec 31, 2023
+    let jan2024 = Date(timeIntervalSince1970: 1_704_009_600) // Jan 1, 2024
+    let feb2024 = Date(timeIntervalSince1970: 1_704_787_200) // Feb 1, 2024
+    
+    await manager.record(
+        timestamp: jan2024,
+        level: .info,
+        message: "january \(label)",
+        label: label
+    )
+    await manager.record(
+        timestamp: dec2023,
+        level: .info,
+        message: "december \(label)",
+        label: label
+    )
+    await manager.record(
+        timestamp: feb2024,
+        level: .info,
+        message: "february \(label)",
+        label: label
+    )
+    
+    await manager.flush()
+    
+    let newest = try await manager.query(LogQuery(label: label, order: .newestFirst))
+    #expect(newest.count == 3)
+    #expect(newest.map(\.message) == ["february \(label)", "january \(label)", "december \(label)"])
+    
+    let oldest = try await manager.query(LogQuery(label: label, order: .oldestFirst))
+    #expect(oldest.map(\.message) == ["december \(label)", "january \(label)", "february \(label)"])
+}
+
+@Test func timestampOrderingWithMillisecondPrecision() async throws {
+    let manager = sharedManager()
+    let label = "MillisecondPrecision-\(UUID().uuidString)"
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    
+    // Create timestamps with second-level differences (SQLite datetime precision)
+    let time1 = base.addingTimeInterval(1) // +1s
+    let time2 = base.addingTimeInterval(2) // +2s
+    let time3 = base.addingTimeInterval(3) // +3s
+    
+    // Insert out of order
+    await manager.record(
+        timestamp: time2,
+        level: .info,
+        message: "middle \(label)",
+        label: label
+    )
+    await manager.record(
+        timestamp: time1,
+        level: .info,
+        message: "first \(label)",
+        label: label
+    )
+    await manager.record(
+        timestamp: time3,
+        level: .info,
+        message: "last \(label)",
+        label: label
+    )
+    
+    await manager.flush()
+    
+    let newest = try await manager.query(LogQuery(label: label, order: .newestFirst))
+    #expect(newest.count == 3)
+    #expect(newest.map(\.message) == ["last \(label)", "middle \(label)", "first \(label)"])
+}
+
 private func sharedManager() -> SQLiteLogManager {
     TestLogging.sharedManager
 }

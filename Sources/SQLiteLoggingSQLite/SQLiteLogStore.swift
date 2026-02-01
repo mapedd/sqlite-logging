@@ -41,7 +41,6 @@ package actor SQLiteLogStore {
                 try SQLiteLogRecord
                     .insert {
                         (
-                            $0.uuid,
                             $0.timestamp,
                             $0.level,
                             $0.label,
@@ -56,7 +55,6 @@ package actor SQLiteLogStore {
                         )
                     } values: {
                         (
-                            entry.uuid,
                             entry.timestamp,
                             entry.level,
                             entry.label,
@@ -73,7 +71,6 @@ package actor SQLiteLogStore {
                     .execute(db)
                 return SQLiteLogRecord(
                     id: db.lastInsertedRowID,
-                    uuid: entry.uuid,
                     timestamp: entry.timestamp,
                     level: entry.level,
                     label: entry.label,
@@ -144,13 +141,18 @@ package actor SQLiteLogStore {
         }
     }
 
+    package func clearAllLogs() async throws {
+        try await database.write { db in
+            try db.execute(sql: "DELETE FROM logs")
+        }
+    }
+
     private static func migrate(_ database: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("create-logs") { db in
             try db.create(table: "logs", ifNotExists: true) { table in
                 table.autoIncrementedPrimaryKey("id")
-                table.column("uuid", .text).notNull().unique()
-                table.column("timestamp", .text).notNull()
+                table.column("timestamp", .datetime).notNull()
                 table.column("level", .text).notNull()
                 table.column("label", .text).notNull()
                 table.column("tag", .text).notNull()
