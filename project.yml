@@ -19,6 +19,7 @@ targets:
       - path: App/Sources
     resources:
       - path: App/Resources
+      - path: icon-ios.png
     dependencies:
       - package: SQLiteLogging
         products:
