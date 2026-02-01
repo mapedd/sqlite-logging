@@ -12,10 +12,17 @@ Most apps already use swift-log for structured logging. SQLiteLogging drops in a
 
 - Drop-in backend for swift-log (no call-site changes).
 - SQLite storage with optional file-backed persistence or in-memory mode.
+- Auto-incremented Int64 IDs for efficient ordering and navigation.
 - Backpressure control with queue depth + drop policy and periodic drop summaries.
 - Rich querying by time range, level, label, tag, text, and pagination.
 - AsyncStream live updates with optional debounce and SQLite-backed filtering.
 - SwiftUI log viewer with collapsible filters, search, ordering toggle, and per-level styling.
+- **Log Detail View** with navigation arrows to browse next/previous logs without dismissing.
+- **Clear Logs** functionality with confirmation alert.
+- **Configurable message lines** (1-100 lines) in the viewer.
+- **Smart timestamp display**: shows time only for today, date+time otherwise, with millisecond precision.
+- **Rich metadata display** concatenated with messages.
+- Reusable **LevelPill** component for consistent log level styling.
 - Works across Apple platforms (iOS, macOS, tvOS, watchOS).
 
 ## Requirements
@@ -71,6 +78,14 @@ logger.info("App started", metadata: ["session": "123"])
 
 Call `await manager.flush()` before termination or when you need logs fully persisted.
 
+### Clear all logs
+
+```swift
+try await manager.clearAllLogs()
+```
+
+This permanently deletes all log entries from the database.
+
 ### Query logs
 
 ```swift
@@ -84,7 +99,14 @@ let records = try await manager.query(
 )
 ```
 
-Each `LogRecord` includes timestamp, level, label, message, metadata JSON, and source location.
+Each `LogRecord` includes:
+- `id`: Auto-incremented Int64 for database ordering
+- `timestamp`: Date with millisecond precision
+- `level`: Logger.Level (trace, debug, info, notice, warning, error, critical)
+- `label` and `tag`: String identifiers
+- `message`: Log message text
+- `metadataJSON`: JSON-encoded metadata dictionary
+- `appName`, `source`, `file`, `function`, `line`: Source location info
 
 ### Stream live logs
 
@@ -111,6 +133,16 @@ struct LogsView: View {
 ```
 
 You can customize colors and fonts via `SQLiteLogViewerStyle`.
+
+#### Viewer Features
+
+- **Tappable log rows**: Tap any log to open the detail view.
+- **Log Detail View**: Browse logs with next/previous navigation arrows.
+- **Smart timestamps**: Shows `HH:mm:ss.SSS` for today's logs, `dd/MM/yy HH:mm:ss.SSS` for older logs.
+- **Configurable display**: Adjust message line limit (1-100) in Filters.
+- **Clear logs**: Tap the trash icon in the Results header to clear all logs.
+- **Live updates**: Real-time log streaming with optional debounce.
+- **Rich filtering**: By level, label, tag, date range, and text search.
 
 ## Sample app
 
