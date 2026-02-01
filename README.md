@@ -1,8 +1,14 @@
 # SQLiteLogging
 
+<p align="center">
+  <img src="icon.png" width="120" alt="SQLiteLogging Icon">
+</p>
+
 SQLiteLogging is a Swift Logging backend that persists log events to SQLite, plus a SwiftUI log viewer you can embed in your app. The idea is to keep structured, searchable logs local, fast to write, and easy to inspect during development or QA without needing a remote log pipeline.
 
-![SQLiteLogging sample app](docs/screenshot.png)
+<p align="center">
+  <img src="docs/screenshot.png" width="400" alt="SQLiteLogging sample app">
+</p>
 
 ## Idea
 
