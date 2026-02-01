@@ -4,6 +4,7 @@ import SQLiteLoggingSQLite
 extension SQLiteLogEntry {
     init(_ event: LogEvent) {
         self.init(
+            uuid: event.uuid.uuidString,
             timestamp: event.timestamp,
             level: event.level.rawValue,
             label: event.label,

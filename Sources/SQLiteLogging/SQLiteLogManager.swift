@@ -2,8 +2,9 @@ import Foundation
 import Logging
 import SQLiteLoggingSQLite
 
-public struct LogRecord: Sendable, Equatable {
+public struct LogRecord: Sendable, Equatable, Identifiable {
     public let id: Int64
+    public let uuid: UUID
     public let timestamp: Date
     public let level: Logger.Level
     public let label: String
@@ -101,6 +102,7 @@ public struct SQLiteLogManager: Sendable {
     ) async {
         let metadataJSON = MetadataJSONEncoder.encode(metadata)
         let event = LogEvent(
+            uuid: UUID(),
             timestamp: timestamp,
             level: level,
             message: message,
@@ -157,6 +159,16 @@ public struct SQLiteLogManager: Sendable {
     public func databaseSizeBytes() async throws -> Int64? {
         return try await store.databaseSizeBytes()
     }
+
+    public func getNextLog(from id: Int64) async throws -> LogRecord? {
+        guard let record = try await store.getNextLog(from: id) else { return nil }
+        return LogRecord(record)
+    }
+
+    public func getPreviousLog(from id: Int64) async throws -> LogRecord? {
+        guard let record = try await store.getPreviousLog(from: id) else { return nil }
+        return LogRecord(record)
+    }
 }
 
 public protocol Service: Sendable {
@@ -183,6 +195,7 @@ public struct SQLiteLoggingService: Service, Sendable {
 extension LogRecord {
     init(_ record: SQLiteLogRecord) {
         self.id = record.id
+        self.uuid = UUID(uuidString: record.uuid) ?? UUID()
         self.timestamp = record.timestamp
         self.level = Logger.Level(rawValue: record.level) ?? .info
         self.label = record.label

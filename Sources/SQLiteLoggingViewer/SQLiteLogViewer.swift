@@ -22,6 +22,9 @@ public struct SQLiteLogViewer: View {
     @State private var pendingScrollToBottomID: Int64?
     @State private var filtersExpanded = false
     @State private var state: LoadState = .idle
+    @State private var newlyAddedLogIDs: Set<Int64> = []
+    @State private var selectedLogRecord: LogRecord?
+    @State private var isDetailSheetPresented = false
 
     public init(
         manager: SQLiteLogManager,
@@ -57,13 +60,41 @@ public struct SQLiteLogViewer: View {
                     await observeLiveLogs()
                 }
                 if #available(iOS 17, macOS 14, tvOS 17, watchOS 10, *) {
-                    list.onChange(of: pendingScrollToBottomID) { _, newValue in
-                        handlePendingScroll(newValue, proxy: proxy)
-                    }
+                    list
+                        .sheet(isPresented: $isDetailSheetPresented) {
+                            if let record = selectedLogRecord {
+                                LogDetailView(
+                                    manager: manager,
+                                    currentRecord: record,
+                                    style: style,
+                                    onDismiss: {
+                                        isDetailSheetPresented = false
+                                        selectedLogRecord = nil
+                                    }
+                                )
+                            }
+                        }
+                        .onChange(of: pendingScrollToBottomID) { _, newValue in
+                            handlePendingScroll(newValue, proxy: proxy)
+                        }
                 } else {
-                    list.onChange(of: pendingScrollToBottomID) { newValue in
-                        handlePendingScroll(newValue, proxy: proxy)
-                    }
+                    list
+                        .sheet(isPresented: $isDetailSheetPresented) {
+                            if let record = selectedLogRecord {
+                                LogDetailView(
+                                    manager: manager,
+                                    currentRecord: record,
+                                    style: style,
+                                    onDismiss: {
+                                        isDetailSheetPresented = false
+                                        selectedLogRecord = nil
+                                    }
+                                )
+                            }
+                        }
+                        .onChange(of: pendingScrollToBottomID) { newValue in
+                            handlePendingScroll(newValue, proxy: proxy)
+                        }
                 }
             }
         }
@@ -156,6 +187,11 @@ public struct SQLiteLogViewer: View {
                                     isAtBottom = false
                                 }
                             }
+                            .onTapGesture {
+                                selectedLogRecord = record
+                                isDetailSheetPresented = true
+                            }
+                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
             }
@@ -231,11 +267,28 @@ public struct SQLiteLogViewer: View {
             state = .loading
         }
         do {
-            let records = try await manager.query(currentQuery)
+            let newRecords = try await manager.query(currentQuery)
             if Task.isCancelled { return }
-            state = .loaded(records)
+            
+            // Track newly added records for animation
+            if case .loaded(let oldRecords) = state {
+                let oldIDs = Set(oldRecords.map { $0.id })
+                let newIDs = Set(newRecords.map { $0.id })
+                let addedIDs = newIDs.subtracting(oldIDs)
+                newlyAddedLogIDs = addedIDs
+                
+                // Clear the animation flag after a delay
+                Task {
+                    try? await Task.sleep(for: .seconds(0.5))
+                    await MainActor.run {
+                        newlyAddedLogIDs.removeAll()
+                    }
+                }
+            }
+            
+            state = .loaded(newRecords)
             if shouldStickToBottom {
-                pendingScrollToBottomID = records.last?.id
+                pendingScrollToBottomID = newRecords.last?.id
             }
         } catch {
             if Task.isCancelled { return }
@@ -415,6 +468,206 @@ private struct PreviewContainer: View {
                     }
             }
         }
+    }
+}
+
+private struct LogDetailView: View {
+    let manager: SQLiteLogManager
+    @State var currentRecord: LogRecord
+    let style: SQLiteLogViewerStyle
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var canGoPrevious = false
+    @State private var canGoNext = false
+    @State private var isLoading = false
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Group {
+                        detailRow("UUID", value: currentRecord.uuid.uuidString)
+                        detailRow("Level", value: currentRecord.level.rawValue.uppercased(), color: style.color(for: currentRecord.level))
+                        detailRow("Timestamp", value: formattedDate(currentRecord.timestamp))
+                        detailRow("Message", value: currentRecord.message)
+                        detailRow("Label", value: currentRecord.label)
+                        detailRow("Tag", value: currentRecord.tag)
+                        detailRow("App Name", value: currentRecord.appName)
+                        detailRow("Source", value: currentRecord.source)
+                        detailRow("File", value: currentRecord.file)
+                        detailRow("Function", value: currentRecord.function)
+                        detailRow("Line", value: String(currentRecord.line))
+                        
+                        metadataTable
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical)
+            }
+            .navigationTitle("Log Detail")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        onDismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigation) {
+                    HStack(spacing: 16) {
+                        Button {
+                            loadPrevious()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .disabled(!canGoPrevious || isLoading)
+                        
+                        Button {
+                            loadNext()
+                        } label: {
+                            Image(systemName: "chevron.right")
+                        }
+                        .disabled(!canGoNext || isLoading)
+                    }
+                }
+            }
+            .task {
+                await checkNavigationAvailability()
+            }
+        }
+    }
+    
+    private func checkNavigationAvailability() async {
+        async let previousTask = manager.getPreviousLog(from: currentRecord.id)
+        async let nextTask = manager.getNextLog(from: currentRecord.id)
+        
+        if let _ = try? await previousTask {
+            canGoPrevious = true
+        }
+        if let _ = try? await nextTask {
+            canGoNext = true
+        }
+    }
+    
+    private func loadPrevious() {
+        guard canGoPrevious, !isLoading else { return }
+        isLoading = true
+        
+        Task {
+            if let previous = try? await manager.getPreviousLog(from: currentRecord.id) {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentRecord = previous
+                    }
+                    isLoading = false
+                }
+                await checkNavigationAvailability()
+            } else {
+                await MainActor.run {
+                    canGoPrevious = false
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func loadNext() {
+        guard canGoNext, !isLoading else { return }
+        isLoading = true
+        
+        Task {
+            if let next = try? await manager.getNextLog(from: currentRecord.id) {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentRecord = next
+                    }
+                    isLoading = false
+                }
+                await checkNavigationAvailability()
+            } else {
+                await MainActor.run {
+                    canGoNext = false
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private var metadataDict: [String: String] {
+        guard let data = currentRecord.metadataJSON.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data),
+              let dict = json as? [String: Any] else {
+            return [:]
+        }
+        
+        return dict.reduce(into: [:]) { result, pair in
+            let key = pair.key
+            let value: String
+            if let stringValue = pair.value as? String {
+                value = stringValue
+            } else {
+                if let jsonData = try? JSONSerialization.data(withJSONObject: pair.value, options: .prettyPrinted),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    value = jsonString
+                } else {
+                    value = String(describing: pair.value)
+                }
+            }
+            result[key] = value
+        }
+    }
+    
+    private var metadataTable: some View {
+        Group {
+            if !metadataDict.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Metadata")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(metadataDict.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(key)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 100, alignment: .leading)
+                                    .lineLimit(1)
+                                
+                                Text(value)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func detailRow(_ title: String, value: String, color: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.body)
+                .foregroundStyle(color ?? .primary)
+                .textSelection(.enabled)
+        }
+    }
+    
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
     }
 }
 

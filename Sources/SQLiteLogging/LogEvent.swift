@@ -2,6 +2,7 @@ import Foundation
 import Logging
 
 public struct LogEvent: Sendable, Equatable {
+    public let uuid: UUID
     public let timestamp: Date
     public let level: Logger.Level
     public let message: String
@@ -16,6 +17,7 @@ public struct LogEvent: Sendable, Equatable {
     public let line: UInt
 
     public init(
+        uuid: UUID = UUID(),
         timestamp: Date,
         level: Logger.Level,
         message: String,
@@ -29,6 +31,7 @@ public struct LogEvent: Sendable, Equatable {
         function: String,
         line: UInt
     ) {
+        self.uuid = uuid
         self.timestamp = timestamp
         self.level = level
         self.message = message
