@@ -2,7 +2,7 @@ import Foundation
 import Logging
 import SQLiteLoggingSQLite
 
-public struct LogRecord: Sendable, Equatable {
+public struct LogRecord: Sendable, Equatable, Identifiable {
     public let id: Int64
     public let timestamp: Date
     public let level: Logger.Level
@@ -156,6 +156,20 @@ public struct SQLiteLogManager: Sendable {
 
     public func databaseSizeBytes() async throws -> Int64? {
         return try await store.databaseSizeBytes()
+    }
+
+    public func getNextLog(from id: Int64) async throws -> LogRecord? {
+        guard let record = try await store.getNextLog(from: id) else { return nil }
+        return LogRecord(record)
+    }
+
+    public func getPreviousLog(from id: Int64) async throws -> LogRecord? {
+        guard let record = try await store.getPreviousLog(from: id) else { return nil }
+        return LogRecord(record)
+    }
+
+    public func clearAllLogs() async throws {
+        try await store.clearAllLogs()
     }
 }
 

@@ -121,12 +121,38 @@ package actor SQLiteLogStore {
         return nil
     }
 
+    package func getNextLog(from id: Int64) async throws -> SQLiteLogRecord? {
+        try await database.read { db in
+            try SQLiteLogRecord.all
+                .where { $0.id > id }
+                .order { $0.id.asc() }
+                .limit(1)
+                .fetchOne(db)
+        }
+    }
+
+    package func getPreviousLog(from id: Int64) async throws -> SQLiteLogRecord? {
+        try await database.read { db in
+            try SQLiteLogRecord.all
+                .where { $0.id < id }
+                .order { $0.id.desc() }
+                .limit(1)
+                .fetchOne(db)
+        }
+    }
+
+    package func clearAllLogs() async throws {
+        try await database.write { db in
+            try db.execute(sql: "DELETE FROM logs")
+        }
+    }
+
     private static func migrate(_ database: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("create-logs") { db in
             try db.create(table: "logs", ifNotExists: true) { table in
                 table.autoIncrementedPrimaryKey("id")
-                table.column("timestamp", .text).notNull()
+                table.column("timestamp", .datetime).notNull()
                 table.column("level", .text).notNull()
                 table.column("label", .text).notNull()
                 table.column("tag", .text).notNull()

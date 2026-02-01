@@ -7,7 +7,7 @@ public struct SQLiteLogViewer: View {
     private let manager: SQLiteLogManager
     private let style: SQLiteLogViewerStyle
     private let liveUpdateDebounce: Duration?
-
+    
     @State private var searchText = ""
     @State private var labelFilter = ""
     @State private var selectedLevels = Set(Logger.Level.allCases)
@@ -17,11 +17,17 @@ public struct SQLiteLogViewer: View {
     @State private var fromDate = Date().addingTimeInterval(-3600)
     @State private var toDate = Date()
     @State private var limit = 200
+    @State private var messageLineLimit = 1
     @State private var liveUpdatesEnabled = true
+    @State private var filtersExpanded = false
+    
     @State private var isAtBottom = true
     @State private var pendingScrollToBottomID: Int64?
-    @State private var filtersExpanded = false
     @State private var state: LoadState = .idle
+    @State private var newlyAddedLogIDs: Set<Int64> = []
+    @State private var selectedLogRecord: LogRecord?
+    @State private var isDetailSheetPresented = false
+    @State private var showClearLogsAlert = false
 
     public init(
         manager: SQLiteLogManager,
@@ -57,13 +63,41 @@ public struct SQLiteLogViewer: View {
                     await observeLiveLogs()
                 }
                 if #available(iOS 17, macOS 14, tvOS 17, watchOS 10, *) {
-                    list.onChange(of: pendingScrollToBottomID) { _, newValue in
-                        handlePendingScroll(newValue, proxy: proxy)
-                    }
+                    list
+                        .sheet(isPresented: $isDetailSheetPresented) {
+                            if let record = selectedLogRecord {
+                                LogDetailView(
+                                    manager: manager,
+                                    currentRecord: record,
+                                    style: style,
+                                    onDismiss: {
+                                        isDetailSheetPresented = false
+                                        selectedLogRecord = nil
+                                    }
+                                )
+                            }
+                        }
+                        .onChange(of: pendingScrollToBottomID) { _, newValue in
+                            handlePendingScroll(newValue, proxy: proxy)
+                        }
                 } else {
-                    list.onChange(of: pendingScrollToBottomID) { newValue in
-                        handlePendingScroll(newValue, proxy: proxy)
-                    }
+                    list
+                        .sheet(isPresented: $isDetailSheetPresented) {
+                            if let record = selectedLogRecord {
+                                LogDetailView(
+                                    manager: manager,
+                                    currentRecord: record,
+                                    style: style,
+                                    onDismiss: {
+                                        isDetailSheetPresented = false
+                                        selectedLogRecord = nil
+                                    }
+                                )
+                            }
+                        }
+                        .onChange(of: pendingScrollToBottomID) { newValue in
+                            handlePendingScroll(newValue, proxy: proxy)
+                        }
                 }
             }
         }
@@ -103,6 +137,8 @@ public struct SQLiteLogViewer: View {
                     }
 
                     Stepper("Limit: \(limit)", value: $limit, in: 50...2000, step: 50)
+                    
+                    Stepper("Message lines: \(messageLineLimit)", value: $messageLineLimit, in: 1...100, step: 1)
                 }
             }
         }
@@ -128,7 +164,7 @@ public struct SQLiteLogViewer: View {
     }
 
     private var resultsSection: some View {
-        Section("Results") {
+        Section {
             switch state {
             case .idle, .loading:
                 HStack {
@@ -145,7 +181,7 @@ public struct SQLiteLogViewer: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(records, id: \.id) { record in
-                        LogRow(record: record, style: style)
+                        LogRow(record: record, style: style, messageLineLimit: messageLineLimit)
                             .onAppear {
                                 if !newestOnTop, record.id == bottomRecordID {
                                     isAtBottom = true
@@ -156,9 +192,45 @@ public struct SQLiteLogViewer: View {
                                     isAtBottom = false
                                 }
                             }
+                            .onTapGesture {
+                                selectedLogRecord = record
+                                isDetailSheetPresented = true
+                            }
+                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
             }
+        } header: {
+            HStack {
+                Text("Results")
+                Spacer()
+                Button {
+                    showClearLogsAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .alert("Clear All Logs?", isPresented: $showClearLogsAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                Task { await clearAllLogs() }
+            }
+        } message: {
+            Text("This will permanently delete all log entries from the database.")
+        }
+    }
+
+    @MainActor
+    private func clearAllLogs() async {
+        do {
+            try await manager.clearAllLogs()
+            // Refresh the view to show empty state
+            await refreshFromDatabase(showLoading: false)
+        } catch {
+            state = .failed("Failed to clear logs: \(error.localizedDescription)")
         }
     }
 
@@ -231,11 +303,28 @@ public struct SQLiteLogViewer: View {
             state = .loading
         }
         do {
-            let records = try await manager.query(currentQuery)
+            let newRecords = try await manager.query(currentQuery)
             if Task.isCancelled { return }
-            state = .loaded(records)
+            
+            // Track newly added records for animation
+            if case .loaded(let oldRecords) = state {
+                let oldIDs = Set(oldRecords.map { $0.id })
+                let newIDs = Set(newRecords.map { $0.id })
+                let addedIDs = newIDs.subtracting(oldIDs)
+                newlyAddedLogIDs = addedIDs
+                
+                // Clear the animation flag after a delay
+                Task {
+                    try? await Task.sleep(for: .seconds(0.5))
+                    await MainActor.run {
+                        newlyAddedLogIDs.removeAll()
+                    }
+                }
+            }
+            
+            state = .loaded(newRecords)
             if shouldStickToBottom {
-                pendingScrollToBottomID = records.last?.id
+                pendingScrollToBottomID = newRecords.last?.id
             }
         } catch {
             if Task.isCancelled { return }
@@ -337,61 +426,69 @@ private struct LevelToggle: View {
 private struct LogRow: View {
     let record: LogRecord
     let style: SQLiteLogViewerStyle
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let messageLineLimit: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
+            // Line 1: Level + Timestamp
             HStack(spacing: 8) {
-                Text(record.level.rawValue.uppercased())
-                    .font(style.logFont.weight(.semibold))
-                    .foregroundStyle(levelColor)
-                Text(record.message)
+                LevelPill(level: record.level, color: levelColor)
+                Spacer()
+                Text(formattedTimestamp)
                     .font(style.logFont)
-                    .foregroundStyle(levelColor)
-                    .lineLimit(isCompact ? 1 : 2)
+                    .foregroundStyle(.secondary)
             }
-
+            
+            // Line 2: Label + Tag
             HStack(spacing: 8) {
-                Text(formattedDate)
                 Text(record.label)
-                if !record.metadataJSON.isEmpty, record.metadataJSON != "{}" {
-                    Text(record.metadataJSON)
-                        .lineLimit(1)
+                    .font(style.logFont)
+                    .foregroundStyle(.secondary)
+                if !record.tag.isEmpty, record.tag != record.label {
+                    Text("•")
+                        .font(style.logFont)
+                        .foregroundStyle(.secondary.opacity(0.5))
+                    Text(record.tag)
+                        .font(style.logFont)
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
             }
-            .font(style.logFont)
-            .foregroundStyle(.secondary)
+            
+            // Line 3+: Message + Metadata
+            Text(messageWithMetadata)
+                .font(style.logFont)
+                .foregroundStyle(.primary)
+                .lineLimit(messageLineLimit)
         }
         .padding(.vertical, 4)
     }
 
-    private var formattedDate: String {
-        isCompact
-            ? Self.timeFormatter.string(from: record.timestamp)
-            : Self.dateTimeFormatter.string(from: record.timestamp)
-    }
-
-    private var isCompact: Bool {
-        horizontalSizeClass == .compact
+    private var formattedTimestamp: String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        let now = Date()
+        
+        // Check if the log is from today
+        if calendar.isDate(record.timestamp, inSameDayAs: now) {
+            // Show only time with milliseconds for today
+            formatter.dateFormat = "HH:mm:ss.SSS"
+        } else {
+            // Show date + time with milliseconds for other days
+            formatter.dateFormat = "dd/MM/yy HH:mm:ss.SSS"
+        }
+        return formatter.string(from: record.timestamp)
     }
 
     private var levelColor: Color {
         style.color(for: record.level)
     }
 
-    private static let dateTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .medium
-        return formatter
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .medium
-        return formatter
-    }()
+    private var messageWithMetadata: String {
+        let hasMetadata = !record.metadataJSON.isEmpty && record.metadataJSON != "{}"
+        guard hasMetadata else { return record.message }
+        return "\(record.message) | \(record.metadataJSON)"
+    }
 }
 
 #if DEBUG

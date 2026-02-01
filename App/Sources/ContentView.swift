@@ -5,6 +5,7 @@ import SwiftUI
 
 struct ContentView: View {
     let manager: SQLiteLogManager
+    @State var index = 0
     private let label = "SQLiteLoggingApp"
     @State private var isGenerating = false
 
@@ -33,24 +34,14 @@ struct ContentView: View {
     }
 
     private func generateRandomLog() async {
-        let now = Date()
-        let start = now.addingTimeInterval(-3600)
-        let timestamp = Date(
-            timeIntervalSince1970: Double.random(
-                in: start.timeIntervalSince1970...now.timeIntervalSince1970
-            )
-        )
         let level = Logger.Level.allCases.randomElement() ?? .info
         let base = Self.soundPhrases.randomElement() ?? "ambient noise detected"
-        let suffix = Int.random(in: 1000...9999)
-        let message = "\(base) [#\(suffix)]"
-        let metadata: Logger.Metadata = [
-            "generator": "live",
-            "window": "last-hour",
-        ]
+        let message = "\(base) [#\(index)]"
+        index += 1
+        let metadata = generateRandomMetadata()
 
         await manager.record(
-            timestamp: timestamp,
+            timestamp: Date(),
             level: level,
             message: message,
             metadata: metadata,
@@ -58,31 +49,63 @@ struct ContentView: View {
             source: label,
             file: "ContentView.swift",
             function: "generateRandomLog()",
-            line: 0
+            line: UInt(arc4random()) & 1000
         )
     }
 
+    private func generateRandomMetadata() -> Logger.Metadata {
+        let allMetadataOptions: [(String, Logger.MetadataValue)] = [
+            ("userId", .string("user_\(Int.random(in: 1000...9999))")),
+            ("messageType", .string(Self.messageTypes.randomElement() ?? "unknown")),
+            ("error", .string(Self.errorMessages.randomElement() ?? "none")),
+            ("requestId", .string("req_\(UUID().uuidString.prefix(8))")),
+            ("service", .string(Self.services.randomElement() ?? "default")),
+            ("priority", .stringConvertible(Int.random(in: 1...5))),
+            ("duration", .stringConvertible(Double.random(in: 0.001...5.0))),
+            ("bytes", .stringConvertible(Int.random(in: 100...100000))),
+        ]
+
+        // Select 1-4 random metadata items
+        let count = Int.random(in: 1...4)
+        let shuffled = allMetadataOptions.shuffled()
+        let selected = Array(shuffled.prefix(count))
+
+        return Dictionary(uniqueKeysWithValues: selected)
+    }
+
     private static let soundPhrases = [
-        "soft hiss from the vent",
+        "soft hiss from the vent that gradually increases in intensity and then fades away into silence",
         "distant rumble under the floor",
-        "sharp clang near the dock door",
+        "sharp clang near the dock door that reverberates throughout the entire warehouse space for several seconds",
         "rapid tapping on the console",
-        "low hum in the engine bay",
+        "low hum in the engine bay that persists continuously with slight variations in pitch and amplitude throughout the day",
         "faint buzz in the wiring panel",
-        "dry rattle from the cabinet",
+        "dry rattle from the cabinet that occurs intermittently whenever the air conditioning system cycles on and off",
         "metallic click on startup",
         "slow drip echoing in the corridor",
         "brief pop in the speaker line",
-        "steady whir from the cooling fan",
+        "steady whir from the cooling fan maintaining constant speed and creating a soothing background white noise effect",
         "short thud by the storage rack",
-        "sudden squeak on the hinge",
+        "sudden squeak on the hinge that startles nearby workers and draws attention to the need for maintenance oiling",
         "muted thump behind the wall",
         "soft crackle over the intercom",
-        "light scrape along the rail",
+        "light scrape along the rail that indicates possible misalignment of the track requiring immediate inspection",
         "hollow knock on the frame",
-        "thin whistle in the pipe",
+        "thin whistle in the pipe that suggests high pressure buildup in the system that needs to be monitored closely",
         "crisp snap near the breaker",
-        "gentle chime from the panel",
+        "gentle chime from the panel that signals the completion of the automated sequence and ready status for next operation",
+    ]
+
+    private static let messageTypes = [
+        "request", "response", "event", "error", "notification", "heartbeat", "sync"
+    ]
+
+    private static let errorMessages = [
+        "none", "timeout", "connection_failed", "validation_error", "not_found", "rate_limited"
+    ]
+
+    private static let services = [
+        "api-gateway", "auth-service", "database", "cache", "queue", "storage", "logger"
     ]
 }
 
