@@ -28,11 +28,9 @@ struct ContentView: View {
             await generateRandomLog()
             try? await Task.sleep(for: .seconds(1))
         }
-        await MainActor.run {
-            isGenerating = false
-        }
+        isGenerating = false
     }
-
+  
     private func generateRandomLog() async {
         let level = Logger.Level.allCases.randomElement() ?? .info
         let base = Self.soundPhrases.randomElement() ?? "ambient noise detected"
