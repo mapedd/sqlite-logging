@@ -236,7 +236,9 @@ private struct LogDetailPreviewContainer: View {
             database: .inMemory()
         )
         
-        let mgr = try! SQLiteLoggingSystem.bootstrap(configuration: configuration)
+        let components = try! SQLiteLoggingSystem.make(configuration: configuration)
+        LoggingSystem.bootstrap(components.handlerFactory)
+        let mgr = components.manager
         let logger = Logger(label: "Preview")
         
         logger.info("Sample log message for preview", metadata: ["key": "value", "number": "42"])

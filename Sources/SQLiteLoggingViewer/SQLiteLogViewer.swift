@@ -527,7 +527,9 @@ private actor PreviewData {
             database: .inMemory()
         )
 
-        let manager = try! SQLiteLoggingSystem.bootstrap(configuration: configuration)
+        let components = try! SQLiteLoggingSystem.make(configuration: configuration)
+        LoggingSystem.bootstrap(components.handlerFactory)
+        let manager = components.manager
         let logger = Logger(label: "Preview")
 
         logger.trace("Trace sample log", metadata: ["scope": "preview"])

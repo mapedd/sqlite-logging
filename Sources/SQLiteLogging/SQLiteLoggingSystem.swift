@@ -2,11 +2,15 @@ import Foundation
 import Logging
 import SQLiteLoggingSQLite
 
+public struct SQLiteLoggingSystemComponents {
+    public let manager: SQLiteLogManager
+    public let handlerFactory: @Sendable (String) -> LogHandler
+}
+
 public enum SQLiteLoggingSystem {
-    @discardableResult
-    public static func bootstrap(
+    public static func make(
         configuration: SQLiteLoggingConfiguration = SQLiteLoggingConfiguration()
-    ) throws -> SQLiteLogManager {
+    ) throws -> SQLiteLoggingSystemComponents {
         let storeStorage: SQLiteLogStoreStorage
         switch configuration.database.storage {
         case .inMemory:
@@ -26,15 +30,21 @@ public enum SQLiteLoggingSystem {
             appName: configuration.appName
         )
 
-        LoggingSystem.bootstrap { label in
-            SQLiteLogHandler(label: label, appName: configuration.appName, dispatcher: dispatcher)
-        }
-
-        return SQLiteLogManager(
+        let manager = SQLiteLogManager(
             dispatcher: dispatcher,
             store: store,
             databaseStorage: configuration.database.storage,
             appName: configuration.appName
         )
+
+        let handlerFactory: @Sendable (String) -> LogHandler = { label in
+          SQLiteLogHandler(
+            label: label,
+            appName: configuration.appName,
+            dispatcher: dispatcher
+          )
+        }
+
+        return SQLiteLoggingSystemComponents(manager: manager, handlerFactory: handlerFactory)
     }
 }

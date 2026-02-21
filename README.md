@@ -76,13 +76,29 @@ let config = SQLiteLoggingConfiguration(
     database: .default(fileName: "myapp-logs.sqlite", maxDatabaseBytes: 50_000_000)
 )
 
-let manager = try SQLiteLoggingSystem.bootstrap(configuration: config)
+let components = try SQLiteLoggingSystem.make(configuration: config)
+LoggingSystem.bootstrap(components.handlerFactory)
+let manager = components.manager
 let logger = Logger(label: "com.example.myapp")
 
 logger.info("App started", metadata: ["session": "123"])
 ```
 
 Call `await manager.flush()` before termination or when you need logs fully persisted.
+
+If you need to combine multiple handlers, use `MultiplexLogHandler`:
+
+```swift
+let components = try SQLiteLoggingSystem.make(configuration: config)
+let other = StreamLogHandler.standardOutput(label: "stdout")
+LoggingSystem.bootstrap { label in
+    MultiplexLogHandler([
+        components.handlerFactory(label),
+        other
+    ])
+}
+let manager = components.manager
+```
 
 ### Clear all logs
 

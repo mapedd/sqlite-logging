@@ -1,3 +1,4 @@
+import Logging
 import SQLiteLogging
 import SwiftUI
 
@@ -22,6 +23,10 @@ private enum AppState {
             appName: "SQLiteLoggingApp",
             database: .default()
         )
-        return try? SQLiteLoggingSystem.bootstrap(configuration: configuration)
+        guard let components = try? SQLiteLoggingSystem.make(configuration: configuration) else {
+            return nil
+        }
+        LoggingSystem.bootstrap(components.handlerFactory)
+        return components.manager
     }()
 }

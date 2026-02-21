@@ -388,6 +388,8 @@ private enum TestLogging {
             database: .inMemory()
         )
 
-        return try! SQLiteLoggingSystem.bootstrap(configuration: configuration)
+        let components = try! SQLiteLoggingSystem.make(configuration: configuration)
+        LoggingSystem.bootstrap(components.handlerFactory)
+        return components.manager
     }()
 }
