@@ -8,13 +8,37 @@ struct ContentView: View {
     @State var index = 0
     private let label = "SQLiteLoggingApp"
     @State private var isGenerating = false
+    @State private var showLogViewer = false
 
     var body: some View {
-        LogViewerContainer(manager: manager)
-            .task {
-                guard beginGeneration() else { return }
-                await generateLogsLoop()
+        VStack(spacing: 24) {
+            Text("SQLite Logging Demo")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            
+            Text("Generating logs...")
+                .foregroundStyle(.secondary)
+            
+            Button {
+                showLogViewer = true
+            } label: {
+                Text("Open Log Viewer")
+                    .font(.headline)
+                    .padding()
+                    .frame(maxWidth: 200)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
+        }
+        .padding()
+        .task {
+            guard beginGeneration() else { return }
+            await generateLogsLoop()
+        }
+        .sheet(isPresented: $showLogViewer) {
+            SQLiteLogViewer(manager: manager)
+        }
     }
   
     private func beginGeneration() -> Bool {
@@ -105,12 +129,4 @@ struct ContentView: View {
     private static let services = [
         "api-gateway", "auth-service", "database", "cache", "queue", "storage", "logger"
     ]
-}
-
-struct LogViewerContainer: View {
-    let manager: SQLiteLogManager
-
-    var body: some View {
-        SQLiteLogViewer(manager: manager)
-    }
 }

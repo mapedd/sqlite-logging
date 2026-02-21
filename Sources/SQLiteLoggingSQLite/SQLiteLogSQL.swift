@@ -21,13 +21,13 @@ package enum SQLiteLogSQL {
             statement = statement.where { $0.level.in(levels) }
         }
         if let label = query.label {
-            statement = statement.where { $0.label.collate(.nocase) == label }
+            statement = statement.where { $0.label.collate(.nocase).eq(label) }
         }
         if let tag = query.tag {
-            statement = statement.where { $0.tag == tag }
+            statement = statement.where { $0.tag.eq(tag) }
         }
         if let appName = query.appName {
-            statement = statement.where { $0.appName == appName }
+            statement = statement.where { $0.appName.eq(appName) }
         }
         if let messageSearch = normalizedSearch(query.messageSearch) {
             statement = statement.where {

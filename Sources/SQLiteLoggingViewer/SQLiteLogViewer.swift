@@ -26,7 +26,6 @@ public struct SQLiteLogViewer: View {
     @State private var state: LoadState = .idle
     @State private var newlyAddedLogIDs: Set<Int64> = []
     @State private var selectedLogRecord: LogRecord?
-    @State private var isDetailSheetPresented = false
     @State private var showClearLogsAlert = false
 
     public init(
@@ -52,6 +51,9 @@ public struct SQLiteLogViewer: View {
                 .listStyle(.inset)
                 #endif
                 .navigationTitle("Logs")
+                #if os(iOS) || os(tvOS) || os(watchOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
                 .searchable(text: $searchText, prompt: "Search message")
                 #if os(iOS) || os(tvOS) || os(watchOS)
                 .textInputAutocapitalization(.never)
@@ -64,36 +66,30 @@ public struct SQLiteLogViewer: View {
                 }
                 if #available(iOS 17, macOS 14, tvOS 17, watchOS 10, *) {
                     list
-                        .sheet(isPresented: $isDetailSheetPresented) {
-                            if let record = selectedLogRecord {
-                                LogDetailView(
-                                    manager: manager,
-                                    currentRecord: record,
-                                    style: style,
-                                    onDismiss: {
-                                        isDetailSheetPresented = false
-                                        selectedLogRecord = nil
-                                    }
-                                )
-                            }
+                        .sheet(item: $selectedLogRecord) { record in
+                            LogDetailView(
+                                manager: manager,
+                                currentRecord: record,
+                                style: style,
+                                onDismiss: {
+                                    selectedLogRecord = nil
+                                }
+                            )
                         }
                         .onChange(of: pendingScrollToBottomID) { _, newValue in
                             handlePendingScroll(newValue, proxy: proxy)
                         }
                 } else {
                     list
-                        .sheet(isPresented: $isDetailSheetPresented) {
-                            if let record = selectedLogRecord {
-                                LogDetailView(
-                                    manager: manager,
-                                    currentRecord: record,
-                                    style: style,
-                                    onDismiss: {
-                                        isDetailSheetPresented = false
-                                        selectedLogRecord = nil
-                                    }
-                                )
-                            }
+                        .sheet(item: $selectedLogRecord) { record in
+                            LogDetailView(
+                                manager: manager,
+                                currentRecord: record,
+                                style: style,
+                                onDismiss: {
+                                    selectedLogRecord = nil
+                                }
+                            )
                         }
                         .onChange(of: pendingScrollToBottomID) { newValue in
                             handlePendingScroll(newValue, proxy: proxy)
@@ -182,6 +178,7 @@ public struct SQLiteLogViewer: View {
                 } else {
                     ForEach(records, id: \.id) { record in
                         LogRow(record: record, style: style, messageLineLimit: messageLineLimit)
+                            .contentShape(Rectangle())
                             .onAppear {
                                 if !newestOnTop, record.id == bottomRecordID {
                                     isAtBottom = true
@@ -194,7 +191,6 @@ public struct SQLiteLogViewer: View {
                             }
                             .onTapGesture {
                                 selectedLogRecord = record
-                                isDetailSheetPresented = true
                             }
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }

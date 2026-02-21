@@ -34,6 +34,7 @@ struct LogDetailView: View {
                     }
                     .padding(.horizontal)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical)
             }
             .navigationTitle("Log Detail")
