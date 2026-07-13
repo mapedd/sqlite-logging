@@ -47,7 +47,12 @@ public struct SQLiteLogViewer: View {
                     filtersSection
                     resultsSection
                 }
-                #if os(iOS) || os(tvOS) || os(watchOS)
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                .contentMargins(.horizontal, 8, for: .scrollContent)
+                .contentMargins(.top, 4, for: .scrollContent)
+                .listSectionSpacing(8)
+                #elseif os(tvOS) || os(watchOS)
                 .listStyle(.insetGrouped)
                 #else
                 .listStyle(.inset)
@@ -135,9 +140,19 @@ public struct SQLiteLogViewer: View {
                 levelPicker
 
                 HStack(spacing: 8) {
-                    Toggle(isOn: $newestOnTop) {
-                        Text("Newest first")
-                            .lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text("Sort")
+                        Spacer(minLength: 4)
+                        Button {
+                            newestOnTop.toggle()
+                        } label: {
+                            Image(systemName: newestOnTop ? "arrow.down" : "arrow.up")
+                                .frame(minWidth: 20, minHeight: 20)
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(newestOnTop ? "Sort newest first" : "Sort oldest first")
+                        .accessibilityValue(newestOnTop ? "Descending" : "Ascending")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -203,6 +218,7 @@ public struct SQLiteLogViewer: View {
                         .lineLimit(1)
                 }
             }
+            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
         }
     }
 
