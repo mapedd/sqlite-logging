@@ -131,73 +131,75 @@ public struct SQLiteLogViewer: View {
     private var filtersSection: some View {
         Section {
             DisclosureGroup(isExpanded: $filtersExpanded) {
-                TextField("Label", text: $labelFilter)
-                    #if os(iOS) || os(tvOS) || os(watchOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
+                Group {
+                    TextField("Label", text: $labelFilter)
+                        #if os(iOS) || os(tvOS) || os(watchOS)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        #endif
 
-                levelPicker
+                    levelPicker
 
-                HStack(spacing: 8) {
                     HStack(spacing: 8) {
-                        Text("Sort")
-                        Spacer(minLength: 4)
-                        Button {
-                            newestOnTop.toggle()
-                        } label: {
-                            Image(systemName: newestOnTop ? "arrow.down" : "arrow.up")
-                                .frame(minWidth: 20, minHeight: 20)
+                        HStack(spacing: 8) {
+                            Text("Sort")
+                            Spacer(minLength: 4)
+                            Button {
+                                newestOnTop.toggle()
+                            } label: {
+                                Image(systemName: newestOnTop ? "arrow.down" : "arrow.up")
+                                    .frame(minWidth: 20, minHeight: 20)
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(newestOnTop ? "Sort newest first" : "Sort oldest first")
+                            .accessibilityValue(newestOnTop ? "Descending" : "Ascending")
                         }
-                        .buttonStyle(.bordered)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityLabel(newestOnTop ? "Sort newest first" : "Sort oldest first")
-                        .accessibilityValue(newestOnTop ? "Descending" : "Ascending")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Toggle(isOn: $liveUpdatesEnabled) {
-                        Text("Live updates")
-                            .lineLimit(1)
+                        Toggle(isOn: $liveUpdatesEnabled) {
+                            Text("Live updates")
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        presentedFilterEditor = .dateRange
+                    } label: {
+                        HStack {
+                            Label("Date range", systemImage: "calendar.badge.clock")
+                            Spacer(minLength: 8)
+                            Text(dateRangeSummary)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(dateRangeSummary)
+
+                    HStack(spacing: 8) {
+                        Stepper(value: $limit, in: 50...2000, step: 50) {
+                            Text("Limit \(limit)")
+                                .lineLimit(1)
+                        }
+                        .accessibilityLabel("Log limit")
+                        .accessibilityValue("\(limit)")
+
+                        Divider()
+
+                        Stepper(value: $messageLineLimit, in: 1...100, step: 1) {
+                            Text("Max lines \(messageLineLimit)")
+                                .lineLimit(1)
+                        }
+                        .accessibilityLabel("Maximum message lines")
+                        .accessibilityValue("\(messageLineLimit)")
+                    }
                 }
-
-                Button {
-                    presentedFilterEditor = .dateRange
-                } label: {
-                    HStack {
-                        Label("Date range", systemImage: "calendar.badge.clock")
-                        Spacer(minLength: 8)
-                        Text(dateRangeSummary)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityValue(dateRangeSummary)
-
-                HStack(spacing: 8) {
-                    Stepper(value: $limit, in: 50...2000, step: 50) {
-                        Text("Limit \(limit)")
-                            .lineLimit(1)
-                    }
-                    .accessibilityLabel("Log limit")
-                    .accessibilityValue("\(limit)")
-
-                    Divider()
-
-                    Stepper(value: $messageLineLimit, in: 1...100, step: 1) {
-                        Text("Max lines \(messageLineLimit)")
-                            .lineLimit(1)
-                    }
-                    .accessibilityLabel("Maximum message lines")
-                    .accessibilityValue("\(messageLineLimit)")
-                }
-
+                .padding(.leading, -20)
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {

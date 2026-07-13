@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/mapedd/sqlite-logging/actions/workflows/ci.yml"><img src="https://github.com/mapedd/sqlite-logging/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://github.com/mapedd/sqlite-logging/releases/tag/0.4.1"><img src="https://img.shields.io/badge/release-0.4.1-blue" alt="Latest release 0.4.1"></a>
+  <a href="https://github.com/mapedd/sqlite-logging/releases/tag/0.4.2"><img src="https://img.shields.io/badge/release-0.4.2-blue" alt="Latest release 0.4.2"></a>
 </p>
 
 SQLiteLogging is a Swift Logging backend that persists log events to SQLite, plus a SwiftUI log viewer you can embed in your app. The idea is to keep structured, searchable logs local, fast to write, and easy to inspect during development or QA without needing a remote log pipeline.
@@ -31,6 +31,7 @@ Most apps already use swift-log for structured logging. SQLiteLogging drops in a
 - SwiftUI log viewer with collapsible filters, search, two-state ordering, and per-level styling.
 - Additive level filtering: all logs are shown by default, then selected levels are combined.
 - Horizontally scrolling level chips that reveal the most recently selected level when reopened.
+- Expanded filter controls align with the filter header to maximize usable horizontal space.
 - Compact date-range editor with optional minimum/maximum bounds and quick presets.
 - **Log Detail View** with navigation arrows to browse next/previous logs without dismissing.
 - **Clear Logs** functionality with confirmation alert.
@@ -54,7 +55,7 @@ Add the package to your app target:
 ```swift
 // Package.swift
 .dependencies: [
-    .package(url: "https://github.com/mapedd/sqlite-logging.git", from: "0.4.1")
+    .package(url: "https://github.com/mapedd/sqlite-logging.git", from: "0.4.2")
 ],
 .targets: [
     .target(
