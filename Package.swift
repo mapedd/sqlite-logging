@@ -22,11 +22,11 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.3"),
-        .package(url: "https://github.com/pointfreeco/sqlite-data.git", from: "1.5.0"),
-        .package(url: "https://github.com/pointfreeco/swift-structured-queries", from: "0.28.0"),
-        .package(url: "https://github.com/groue/GRDB.swift", from: "7.9.0"),
-        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.14.0"),
+        .package(url: "https://github.com/pointfreeco/sqlite-data.git", from: "1.6.6"),
+        .package(url: "https://github.com/pointfreeco/swift-structured-queries", from: "0.33.1"),
+        .package(url: "https://github.com/groue/GRDB.swift", from: "7.11.1"),
+        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.1.5"),
     ],
     targets: [
         .target(

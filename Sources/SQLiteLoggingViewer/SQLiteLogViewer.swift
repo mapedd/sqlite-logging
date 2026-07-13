@@ -10,16 +10,18 @@ public struct SQLiteLogViewer: View {
     
     @State private var searchText = ""
     @State private var labelFilter = ""
-    @State private var selectedLevels = Set(Logger.Level.allCases)
+    @State private var selectedLevels: Set<Logger.Level> = []
+    @State private var lastSelectedLevel: Logger.Level?
     @State private var newestOnTop = true
     @State private var fromEnabled = false
     @State private var toEnabled = false
     @State private var fromDate = Date().addingTimeInterval(-3600)
     @State private var toDate = Date()
     @State private var limit = 200
-    @State private var messageLineLimit = 1
+    @State private var messageLineLimit = 3
     @State private var liveUpdatesEnabled = true
     @State private var filtersExpanded = false
+    @State private var presentedFilterEditor: FilterEditor?
     
     @State private var isAtBottom = true
     @State private var pendingScrollToBottomID: Int64?
@@ -54,7 +56,29 @@ public struct SQLiteLogViewer: View {
                 #if os(iOS) || os(tvOS) || os(watchOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
+                .toolbar {
+                    if hasActiveFilters {
+                        ToolbarItem {
+                            Button("Clear filters", systemImage: "line.3.horizontal.decrease.circle.badge.xmark") {
+                                clearFilters()
+                            }
+                            .labelStyle(.iconOnly)
+                            .accessibilityHint("Shows all logs")
+                        }
+                    }
+                }
                 .searchable(text: $searchText, prompt: "Search message")
+                .sheet(item: $presentedFilterEditor) { editor in
+                    switch editor {
+                    case .dateRange:
+                        DateRangeEditor(
+                            fromEnabled: $fromEnabled,
+                            toEnabled: $toEnabled,
+                            fromDate: $fromDate,
+                            toDate: $toDate
+                        )
+                    }
+                }
                 #if os(iOS) || os(tvOS) || os(watchOS)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -100,63 +124,125 @@ public struct SQLiteLogViewer: View {
     }
 
     private var filtersSection: some View {
-            Section {
-                DisclosureGroup("Filters", isExpanded: $filtersExpanded) {
-                    TextField("Label", text: $labelFilter)
-                        #if os(iOS) || os(tvOS) || os(watchOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
+        Section {
+            DisclosureGroup(isExpanded: $filtersExpanded) {
+                TextField("Label", text: $labelFilter)
+                    #if os(iOS) || os(tvOS) || os(watchOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
 
-                    levelPicker
+                levelPicker
 
-                    Toggle("Newest on top", isOn: $newestOnTop)
-
-                    Toggle("Live updates", isOn: $liveUpdatesEnabled)
-
-                    Toggle("From date", isOn: $fromEnabled)
-                    if fromEnabled {
-                        DatePicker(
-                            "From",
-                            selection: $fromDate,
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
+                HStack(spacing: 8) {
+                    Toggle(isOn: $newestOnTop) {
+                        Text("Newest first")
+                            .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Toggle("To date", isOn: $toEnabled)
-                    if toEnabled {
-                        DatePicker(
-                            "To",
-                            selection: $toDate,
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
+                    Toggle(isOn: $liveUpdatesEnabled) {
+                        Text("Live updates")
+                            .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-                    Stepper("Limit: \(limit)", value: $limit, in: 50...2000, step: 50)
-                    
-                    Stepper("Message lines: \(messageLineLimit)", value: $messageLineLimit, in: 1...100, step: 1)
+                Button {
+                    presentedFilterEditor = .dateRange
+                } label: {
+                    HStack {
+                        Label("Date range", systemImage: "calendar.badge.clock")
+                        Spacer(minLength: 8)
+                        Text(dateRangeSummary)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(dateRangeSummary)
+
+                HStack(spacing: 8) {
+                    Stepper(value: $limit, in: 50...2000, step: 50) {
+                        Text("Limit \(limit)")
+                            .lineLimit(1)
+                    }
+                    .accessibilityLabel("Log limit")
+                    .accessibilityValue("\(limit)")
+
+                    Divider()
+
+                    Stepper(value: $messageLineLimit, in: 1...100, step: 1) {
+                        Text("Max lines \(messageLineLimit)")
+                            .lineLimit(1)
+                    }
+                    .accessibilityLabel("Maximum message lines")
+                    .accessibilityValue("\(messageLineLimit)")
+                }
+
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Filters")
+                        if activeFilterCount > 0 {
+                            Text("\(activeFilterCount)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.tint)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    Text(filterSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
         }
+    }
 
     private var levelPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Levels")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
-                ForEach(Logger.Level.allCases, id: \.self) { level in
-                    LevelToggle(
-                        level: level,
-                        color: style.color(for: level),
-                        isSelected: selectedLevels.contains(level)
-                    ) {
-                        toggle(level)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("Levels")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(selectedLevels.isEmpty ? "All" : "\(selectedLevels.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(Logger.Level.allCases.reversed(), id: \.self) { level in
+                            LevelToggle(
+                                level: level,
+                                color: style.color(for: level),
+                                isSelected: selectedLevels.contains(level)
+                            ) {
+                                toggle(level)
+                            }
+                            .id(level)
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    guard let selectedLevelToReveal else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(selectedLevelToReveal, anchor: .center)
                     }
                 }
             }
+            .id(filtersExpanded)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private var resultsSection: some View {
@@ -178,6 +264,7 @@ public struct SQLiteLogViewer: View {
                 } else {
                     ForEach(records, id: \.id) { record in
                         LogRow(record: record, style: style, messageLineLimit: messageLineLimit)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                             .contentShape(Rectangle())
                             .onAppear {
                                 if !newestOnTop, record.id == bottomRecordID {
@@ -350,10 +437,85 @@ public struct SQLiteLogViewer: View {
     private func toggle(_ level: Logger.Level) {
         if selectedLevels.contains(level) {
             selectedLevels.remove(level)
+            if lastSelectedLevel == level {
+                lastSelectedLevel = selectedLevelToReveal
+            }
         } else {
             selectedLevels.insert(level)
+            lastSelectedLevel = level
+            if selectedLevels.count == Logger.Level.allCases.count {
+                selectedLevels.removeAll()
+                lastSelectedLevel = nil
+            }
         }
     }
+
+    private var selectedLevelToReveal: Logger.Level? {
+        if let lastSelectedLevel, selectedLevels.contains(lastSelectedLevel) {
+            return lastSelectedLevel
+        }
+        return Logger.Level.allCases.reversed().first(where: selectedLevels.contains)
+    }
+
+    private var hasActiveFilters: Bool {
+        activeFilterCount > 0
+    }
+
+    private var activeFilterCount: Int {
+        (selectedLevels.isEmpty ? 0 : 1) +
+        (labelFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : 1) +
+        (fromEnabled || toEnabled ? 1 : 0)
+    }
+
+    private var filterSummary: String {
+        var parts = Logger.Level.allCases.reversed()
+            .filter(selectedLevels.contains)
+            .map { $0.rawValue.capitalized }
+
+        let trimmedLabel = labelFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedLabel.isEmpty {
+            parts.append("Label: \(trimmedLabel)")
+        }
+        if fromEnabled, toEnabled {
+            parts.append("\(formattedFilterDate(fromDate))–\(formattedFilterDate(toDate))")
+        } else if fromEnabled {
+            parts.append("From \(formattedFilterDate(fromDate))")
+        } else if toEnabled {
+            parts.append("Until \(formattedFilterDate(toDate))")
+        }
+
+        return parts.isEmpty ? "All logs" : parts.joined(separator: " · ")
+    }
+
+    private func formattedFilterDate(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private var dateRangeSummary: String {
+        if fromEnabled, toEnabled {
+            return "\(formattedFilterDate(fromDate))–\(formattedFilterDate(toDate))"
+        } else if fromEnabled {
+            return "After \(formattedFilterDate(fromDate))"
+        } else if toEnabled {
+            return "Before \(formattedFilterDate(toDate))"
+        } else {
+            return "Any time"
+        }
+    }
+
+    private func clearFilters() {
+        selectedLevels.removeAll()
+        lastSelectedLevel = nil
+        labelFilter = ""
+        fromEnabled = false
+        toEnabled = false
+    }
+}
+
+private enum FilterEditor: String, Identifiable {
+    case dateRange
+
+    var id: Self { self }
 }
 
 private enum LoadState: Equatable {
@@ -382,6 +544,7 @@ private struct FilterState: Equatable {
     }
 
     var levelsFilter: [Logger.Level]? {
+        guard !levels.isEmpty else { return nil }
         let all = Set(Logger.Level.allCases)
         if levels == all {
             return nil
@@ -407,15 +570,144 @@ private struct LevelToggle: View {
         Button(action: action) {
             Text(level.rawValue.uppercased())
                 .font(.caption.weight(.semibold))
-                .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 10)
                 .background(isSelected ? color.opacity(0.2) : Color.gray.opacity(0.15))
                 .foregroundStyle(isSelected ? color : Color.primary)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Toggle \(level.rawValue) logs")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+private struct DateRangeEditor: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding private var fromEnabled: Bool
+    @Binding private var toEnabled: Bool
+    @Binding private var fromDate: Date
+    @Binding private var toDate: Date
+
+    @State private var draftFromEnabled: Bool
+    @State private var draftToEnabled: Bool
+    @State private var draftFromDate: Date
+    @State private var draftToDate: Date
+
+    init(
+        fromEnabled: Binding<Bool>,
+        toEnabled: Binding<Bool>,
+        fromDate: Binding<Date>,
+        toDate: Binding<Date>
+    ) {
+        _fromEnabled = fromEnabled
+        _toEnabled = toEnabled
+        _fromDate = fromDate
+        _toDate = toDate
+        _draftFromEnabled = State(initialValue: fromEnabled.wrappedValue)
+        _draftToEnabled = State(initialValue: toEnabled.wrappedValue)
+        _draftFromDate = State(initialValue: fromDate.wrappedValue)
+        _draftToDate = State(initialValue: toDate.wrappedValue)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Menu("Choose a quick range", systemImage: "clock.arrow.circlepath") {
+                        Button("Last hour") {
+                            selectRange(endingAt: Date(), duration: 60 * 60)
+                        }
+                        Button("Last 24 hours") {
+                            selectRange(endingAt: Date(), duration: 24 * 60 * 60)
+                        }
+                        Button("Last 7 days") {
+                            selectRange(endingAt: Date(), duration: 7 * 24 * 60 * 60)
+                        }
+                    }
+                } header: {
+                    Text("Quick range")
+                }
+
+                Section {
+                    Toggle("Minimum date", isOn: $draftFromEnabled)
+                    if draftFromEnabled {
+                        DatePicker(
+                            "From",
+                            selection: $draftFromDate,
+                            in: Date.distantPast...maximumFromDate,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                    }
+
+                    Toggle("Maximum date", isOn: $draftToEnabled)
+                    if draftToEnabled {
+                        DatePicker(
+                            "To",
+                            selection: $draftToDate,
+                            in: minimumToDate...Date.distantFuture,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                    }
+                } header: {
+                    Text("Custom bounds")
+                }
+
+                if draftFromEnabled || draftToEnabled {
+                    Section {
+                        Button("Remove date range", role: .destructive) {
+                            draftFromEnabled = false
+                            draftToEnabled = false
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Date Range")
+            #if os(iOS) || os(tvOS) || os(watchOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        applyChanges()
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        #endif
+    }
+
+    private var maximumFromDate: Date {
+        draftToEnabled ? draftToDate : Date.distantFuture
+    }
+
+    private var minimumToDate: Date {
+        draftFromEnabled ? draftFromDate : Date.distantPast
+    }
+
+    private func selectRange(endingAt endDate: Date, duration: TimeInterval) {
+        draftFromEnabled = true
+        draftToEnabled = true
+        draftFromDate = endDate.addingTimeInterval(-duration)
+        draftToDate = endDate
+    }
+
+    private func applyChanges() {
+        fromEnabled = draftFromEnabled
+        toEnabled = draftToEnabled
+        fromDate = draftFromDate
+        toDate = draftToDate
+        dismiss()
     }
 }
 
@@ -425,21 +717,13 @@ private struct LogRow: View {
     let messageLineLimit: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Line 1: Level + Timestamp
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
                 LevelPill(level: record.level, color: levelColor)
-                Spacer()
-                Text(formattedTimestamp)
-                    .font(style.logFont)
-                    .foregroundStyle(.secondary)
-            }
-            
-            // Line 2: Label + Tag
-            HStack(spacing: 8) {
                 Text(record.label)
                     .font(style.logFont)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 if !record.tag.isEmpty, record.tag != record.label {
                     Text("•")
                         .font(style.logFont)
@@ -447,17 +731,20 @@ private struct LogRow: View {
                     Text(record.tag)
                         .font(style.logFont)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                Spacer()
+                Spacer(minLength: 4)
+                Text(formattedTimestamp)
+                    .font(style.logFont)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             
-            // Line 3+: Message + Metadata
-            Text(messageWithMetadata)
+            messageWithMetadata
                 .font(style.logFont)
-                .foregroundStyle(.primary)
                 .lineLimit(messageLineLimit)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private var formattedTimestamp: String {
@@ -480,10 +767,69 @@ private struct LogRow: View {
         style.color(for: record.level)
     }
 
-    private var messageWithMetadata: String {
+    private var messageWithMetadata: Text {
+        var parts = [Text(record.message).foregroundColor(.primary)]
         let hasMetadata = !record.metadataJSON.isEmpty && record.metadataJSON != "{}"
-        guard hasMetadata else { return record.message }
-        return "\(record.message) | \(record.metadataJSON)"
+        guard hasMetadata else { return combinedText(parts) }
+
+        parts.append(Text("  ·  ").foregroundColor(.secondary.opacity(0.6)))
+
+        guard let metadataItems else {
+            parts.append(Text(record.metadataJSON).foregroundColor(.secondary))
+            return combinedText(parts)
+        }
+
+        for (index, item) in metadataItems.enumerated() {
+            if index > 0 {
+                parts.append(Text("  "))
+            }
+            parts.append(
+                Text(item.key)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            )
+            parts.append(Text("=\(item.value)").foregroundColor(.secondary.opacity(0.82)))
+        }
+        return combinedText(parts)
+    }
+
+    private func combinedText(_ parts: [Text]) -> Text {
+        guard let first = parts.first else { return Text("") }
+        return parts.dropFirst().reduce(first) { result, next in
+            Text("\(result)\(next)")
+        }
+    }
+
+    private var metadataItems: [(key: String, value: String)]? {
+        guard let data = record.metadataJSON.data(using: .utf8) else { return nil }
+        do {
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return object.keys.sorted().map { key in
+                (key: key, value: metadataValueDescription(object[key]))
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    private func metadataValueDescription(_ value: Any?) -> String {
+        guard let value else { return "null" }
+        if let string = value as? String {
+            return string
+        }
+        if JSONSerialization.isValidJSONObject(value) {
+            do {
+                let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+                if let string = String(data: data, encoding: .utf8) {
+                    return string
+                }
+            } catch {
+                return String(describing: value)
+            }
+        }
+        return String(describing: value)
     }
 }
 

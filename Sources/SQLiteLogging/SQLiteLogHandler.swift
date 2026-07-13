@@ -21,34 +21,26 @@ public struct SQLiteLogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
-    public func log(
-        level: Logger.Level,
-        message: Logger.Message,
-        metadata: Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
-        if level < logLevel { return }
-        let combined = self.metadata.merging(metadata ?? [:]) { _, new in new }
+    public func log(event: Logging.LogEvent) {
+        if event.level < logLevel { return }
+        let combined = self.metadata.merging(event.metadata ?? [:]) { _, new in new }
         let metadataJSON = MetadataJSONEncoder.encode(combined)
-        let event = LogEvent(
+        let storedEvent = LogEvent(
             timestamp: Date(),
-            level: level,
-            message: message.description,
+            level: event.level,
+            message: event.message.description,
             label: label,
             tag: label,
             metadata: combined,
             metadataJSON: metadataJSON,
             appName: appName,
-            source: source,
-            file: file,
-            function: function,
-            line: line
+            source: event.source,
+            file: event.file,
+            function: event.function,
+            line: event.line
         )
         Task {
-            await dispatcher.enqueue(event)
+            await dispatcher.enqueue(storedEvent)
         }
     }
 }
